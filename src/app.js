@@ -513,7 +513,11 @@ const SCORECARD_TARGETS = { trcf:20, ltif:20, nnc:4 };
 
 function setScoreCardYear(v){
   const panel = document.getElementById('scoreCardPanel');
-  if(panel){ panel.dataset.year = v; renderScoreCard(); }
+  if(!panel) return;
+  panel.dataset.year = v;
+  const sel = document.getElementById('scoreCardYearSel');
+  if(sel) sel.value = String(v);
+  renderScoreCard();
 }
 
 function renderScoreCard(){
@@ -529,8 +533,27 @@ function renderScoreCard(){
   panel.style.display = 'block';
 
   const yearNow = new Date().getFullYear();
-  const y = parseInt(panel.dataset.year || '', 10) || yearNow;
 
+  // Marco (titulo + selector de ano): se arma una sola vez.
+  // Asi el <select> no se destruye a si mismo al cambiar el ano; solo se re-dibuja la tabla.
+  if(!document.getElementById('scoreCardTableWrap')){
+    const opts = [];
+    for(let yy=yearNow-4; yy<=yearNow+2; yy++) opts.push(`<option value="${yy}">${yy}</option>`);
+    panel.innerHTML = `
+      <div class="chart-card" style="padding:0;overflow:hidden;">
+        <div style="display:flex;justify-content:space-between;align-items:center;background:#002247;color:#fff;padding:10px 14px;">
+          <div style="font-family:'Saira',sans-serif;font-weight:700;letter-spacing:0.06em;font-size:16px;">SCORE CARD</div>
+          <div style="display:flex;align-items:center;gap:8px;font-size:12px;">
+            <span style="opacity:.85;">Ano</span>
+            <select id="scoreCardYearSel" onchange="setScoreCardYear(this.value)" style="width:auto;background:#0A3A66;color:#fff;border:1px solid rgba(255,255,255,0.25);padding:4px 8px;">${opts.join('')}</select>
+          </div>
+        </div>
+        <div id="scoreCardTableWrap"></div>
+      </div>`;
+    document.getElementById('scoreCardYearSel').value = String(panel.dataset.year || yearNow);
+  }
+
+  const y = parseInt(panel.dataset.year || String(yearNow), 10) || yearNow;
   const quarters = [
     { q:'1Q', ini:`${y}-01-01`, fin:`${y}-03-31` },
     { q:'2Q', ini:`${y}-04-01`, fin:`${y}-06-30` },
@@ -538,20 +561,21 @@ function renderScoreCard(){
     { q:'4Q', ini:`${y}-10-01`, fin:`${y}-12-31` },
   ];
   const yIni = `${y}-01-01`, yFin = `${y}-12-31`;
+  const hoy = new Date().toISOString().slice(0,10);
+  const effFin = d => d < hoy ? d : hoy;   // acumulado "hasta el momento": nunca proyecta al futuro
 
-  // Respeta el filtro de Sitio/Buque activo (igual que los paneles de arriba).
+  // Misma logica y fuente que los paneles de arriba (respeta el filtro Sitio/Buque).
   const accAll = filteredRecords(true).filter(r => r.tipo==='ACC' && r.incluir_kpi);
   const ncAll  = filteredRecords(true).filter(r => r.tipo==='NC');
 
-  // Tasas OCIMF (frecuencias) por rango de fechas.
   const rate = (prefijos, ini, fin) => {
+    if(fin < ini) return 0;
     const cases = accAll.filter(r => r.fecha>=ini && r.fecha<=fin &&
       prefijos.some(pre => (r.clasificacion||'').startsWith(pre))).length;
     const exp = computeExposureHours(ini, fin);
     return exp>0 ? +((cases*OCIMF_MULTIPLIER)/exp).toFixed(2) : 0;
   };
-  // Conteo de NC por categoria y rango.
-  const ncCount = (orig, aud, amb, ini, fin) => ncAll.filter(r =>
+  const ncCount = (orig, aud, amb, ini, fin) => (fin < ini) ? 0 : ncAll.filter(r =>
     r.fecha>=ini && r.fecha<=fin &&
     orig.includes(r.clasificacion_origen) &&
     r.tipo_auditoria===aud && r.ambito_auditoria===amb
@@ -570,10 +594,10 @@ function renderScoreCard(){
   const dmy = iso => { const [Y,M,D]=iso.split('-'); return `${D}/${M}/${Y}`; };
 
   const bodyHtml = rows.map(row=>{
-    const qv = quarters.map(q=>row.fn(q.ini,q.fin));
-    // Conteos: el total anual es la suma de los trimestres.
-    // Tasas de frecuencia: el total anual se RECALCULA sobre todo el ano (no se suman las tasas).
-    const total = row.kind==='count' ? qv.reduce((a,b)=>a+b,0) : row.fn(yIni,yFin);
+    // Cada trimestre se calcula hasta el fin del trimestre o hasta hoy (lo que ocurra primero).
+    const qv = quarters.map(q=>row.fn(q.ini, effFin(q.fin)));
+    // TOTAL = acumulado hasta hoy. Conteos: suma de trimestres. Tasas: se RECALCULAN sobre el periodo transcurrido.
+    const total = row.kind==='count' ? qv.reduce((a,b)=>a+b,0) : row.fn(yIni, effFin(yFin));
     const qCells = qv.map(v=>`<td style="text-align:center;padding:7px 8px;border:1px solid #DBE0E6;">${fmt(v)}</td>`).join('');
     return `<tr>
       <td style="padding:7px 10px;border:1px solid #DBE0E6;font-weight:600;">${row.kpi}</td>
@@ -584,34 +608,21 @@ function renderScoreCard(){
     </tr>`;
   }).join('');
 
-  const yearOpts = [];
-  for(let yy=yearNow-3; yy<=yearNow+1; yy++){
-    yearOpts.push(`<option value="${yy}" ${yy===y?'selected':''}>${yy}</option>`);
-  }
   const thQ = quarters.map(q=>`<th style="background:#6B7681;color:#fff;text-align:center;padding:6px 8px;border:1px solid #DBE0E6;font-size:11px;">${q.q}<br><span style="font-weight:400;font-size:10px;">${dmy(q.fin)}</span></th>`).join('');
 
-  panel.innerHTML = `
-    <div class="chart-card" style="padding:0;overflow:hidden;">
-      <div style="display:flex;justify-content:space-between;align-items:center;background:#002247;color:#fff;padding:10px 14px;">
-        <div style="font-family:'Saira',sans-serif;font-weight:700;letter-spacing:0.06em;font-size:16px;">SCORE CARD</div>
-        <div style="display:flex;align-items:center;gap:8px;font-size:12px;">
-          <span style="opacity:.85;">Ano</span>
-          <select onchange="setScoreCardYear(this.value)" style="width:auto;background:#0A3A66;color:#fff;border:1px solid rgba(255,255,255,0.25);padding:4px 8px;">${yearOpts.join('')}</select>
-        </div>
-      </div>
-      <table id="scoreCardTable" style="width:100%;border-collapse:collapse;font-size:12.5px;background:#fff;">
-        <thead>
-          <tr>
-            <th style="background:#E9EDF1;text-align:left;padding:6px 10px;border:1px solid #DBE0E6;">KPI</th>
-            <th style="background:#E9EDF1;text-align:center;padding:6px 8px;border:1px solid #DBE0E6;">Gerencia</th>
-            <th style="background:#FFF3B0;text-align:center;padding:6px 8px;border:1px solid #DBE0E6;">Target ${y}</th>
-            ${thQ}
-            <th style="background:#1E7A4A;color:#fff;text-align:center;padding:6px 8px;border:1px solid #DBE0E6;">TOTAL</th>
-          </tr>
-        </thead>
-        <tbody>${bodyHtml}</tbody>
-      </table>
-    </div>`;
+  document.getElementById('scoreCardTableWrap').innerHTML = `
+    <table id="scoreCardTable" style="width:100%;border-collapse:collapse;font-size:12.5px;background:#fff;">
+      <thead>
+        <tr>
+          <th style="background:#E9EDF1;text-align:left;padding:6px 10px;border:1px solid #DBE0E6;">KPI</th>
+          <th style="background:#E9EDF1;text-align:center;padding:6px 8px;border:1px solid #DBE0E6;">Gerencia</th>
+          <th style="background:#FFF3B0;text-align:center;padding:6px 8px;border:1px solid #DBE0E6;">Target ${y}</th>
+          ${thQ}
+          <th style="background:#1E7A4A;color:#fff;text-align:center;padding:6px 8px;border:1px solid #DBE0E6;">TOTAL</th>
+        </tr>
+      </thead>
+      <tbody>${bodyHtml}</tbody>
+    </table>`;
 }
 
 /* ============ RENDER: CHARTS ============ */
