@@ -595,10 +595,15 @@ function renderScoreCard(){
 
   const bodyHtml = rows.map(row=>{
     // Cada trimestre se calcula hasta el fin del trimestre o hasta hoy (lo que ocurra primero).
-    const qv = quarters.map(q=>row.fn(q.ini, effFin(q.fin)));
-    // TOTAL = acumulado hasta hoy. Conteos: suma de trimestres. Tasas: se RECALCULAN sobre el periodo transcurrido.
-    const total = row.kind==='count' ? qv.reduce((a,b)=>a+b,0) : row.fn(yIni, effFin(yFin));
-    const qCells = qv.map(v=>`<td style="text-align:center;padding:7px 8px;border:1px solid #DBE0E6;">${fmt(v)}</td>`).join('');
+    // Cada columna es ACUMULADA: desde el 1-ene hasta el cierre de ese trimestre (o hasta hoy si aun no cerro).
+    // Asi coincide con filtrar los paneles de arriba de 01-ene al cierre del trimestre.
+    const qv = quarters.map(q=>{
+      if(q.ini > hoy) return null;               // trimestre futuro: sin dato todavia
+      const fin = q.fin <= hoy ? q.fin : hoy;    // trimestre completo, o parcial hasta hoy
+      return row.fn(yIni, fin);
+    });
+    const total = row.fn(yIni, effFin(yFin));    // acumulado del ano hasta hoy
+    const qCells = qv.map(v=>`<td style="text-align:center;padding:7px 8px;border:1px solid #DBE0E6;">${v===null?'':fmt(v)}</td>`).join('');
     return `<tr>
       <td style="padding:7px 10px;border:1px solid #DBE0E6;font-weight:600;">${row.kpi}</td>
       <td style="text-align:center;padding:7px 8px;border:1px solid #DBE0E6;font-style:italic;color:#5B6671;">HSQE-ISM</td>
