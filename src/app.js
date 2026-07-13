@@ -111,7 +111,7 @@ async function loadData(){
     DATA.records   = (regRes.data || []).map(r => r.data);
     DATA.catalogos = (catRes.data && catRes.data.data) ? catRes.data.data : {};
     DATA.companies = (cfgRes.data && cfgRes.data.data && Array.isArray(cfgRes.data.data.companies)) ? cfgRes.data.data.companies : [];
-    DATA.scorecardTargets = (cfgRes.data && cfgRes.data.data && cfgRes.data.data.scorecardTargets) ? cfgRes.data.data.scorecardTargets : { ...SCORECARD_DEFAULT_TARGETS };
+    DATA.scorecardTargets = (cfgRes.data && cfgRes.data.data && cfgRes.data.data.scorecardTargets) ? cfgRes.data.data.scorecardTargets : {};
     if(DATA.companies.length === 0){ seedDefaults(); await saveConfig(); }
   }catch(e){
     console.error('Error cargando datos HSQE:', e && e.message ? e.message : e);
@@ -446,7 +446,7 @@ function renderOcimfKpi(){
   const dias = daysBetweenInclusive(desde, hasta);
   const exposicionHoras = computeExposureHours(desde, hasta);
   const sinExp = exposicionHoras === 0;
-  const tasa = n => sinExp ? null : +((n * OCIMF_MULTIPLIER) / exposicionHoras).toFixed(2);
+  const tasa = n => n === 0 ? 0 : (sinExp ? null : +((n * OCIMF_MULTIPLIER) / exposicionHoras).toFixed(2));
 
   const ltif = tasa(lti);
   const trcf = tasa(trc);
@@ -515,18 +515,28 @@ function renderAuditNcKpi(){
 const SCORECARD_YEAR_MIN = 2025, SCORECARD_YEAR_MAX = 2032;
 let scoreCardYear = null;
 
+// Targets POR ANO (persistidos en config). Cada ano tiene su propio set editable.
+function scorecardTargetsFor(y){
+  if(!DATA.scorecardTargets || typeof DATA.scorecardTargets !== 'object') DATA.scorecardTargets = {};
+  if(typeof DATA.scorecardTargets.trcf === 'number') DATA.scorecardTargets = {}; // migra formato viejo (plano)
+  const k = String(y);
+  if(!DATA.scorecardTargets[k]) DATA.scorecardTargets[k] = { ...SCORECARD_DEFAULT_TARGETS };
+  return DATA.scorecardTargets[k];
+}
+
 function setScoreCardYear(v){
   scoreCardYear = parseInt(v, 10) || new Date().getFullYear();
   renderScoreCard();
 }
 
 function setScoreCardTarget(key, v){
-  if(!DATA.scorecardTargets) DATA.scorecardTargets = { ...SCORECARD_DEFAULT_TARGETS };
+  const yr = scoreCardYear || new Date().getFullYear();
+  const T = scorecardTargetsFor(yr);
   const num = parseFloat(String(v).replace(',', '.'));
-  DATA.scorecardTargets[key] = isNaN(num) ? 0 : num;
+  T[key] = isNaN(num) ? 0 : num;
   saveConfig();          // persiste en Supabase (hsqe_config)
   renderScoreCard();     // refresca el semaforo
-  showToast('Target actualizado');
+  showToast(`Target ${yr} actualizado`);
 }
 
 function renderScoreCard(){
@@ -541,14 +551,12 @@ function renderScoreCard(){
   }
   panel.style.display = 'block';
 
-  if(!DATA.scorecardTargets) DATA.scorecardTargets = { ...SCORECARD_DEFAULT_TARGETS };
-  const T = DATA.scorecardTargets;
-
   if(!scoreCardYear){
     const yn = new Date().getFullYear();
     scoreCardYear = Math.min(SCORECARD_YEAR_MAX, Math.max(SCORECARD_YEAR_MIN, yn));
   }
   const y = scoreCardYear;
+  const T = scorecardTargetsFor(y);   // targets del ano seleccionado
 
   const quarters = [
     { q:'1Q', ini:`${y}-01-01`, fin:`${y}-03-31` },
@@ -567,10 +575,11 @@ function renderScoreCard(){
   // Tasa OCIMF: null (s/d) si no hay exposicion cargada en ese periodo.
   const rate = (prefijos, ini, fin) => {
     if(fin < ini) return null;
-    const exp = computeExposureHours(ini, fin);
-    if(exp === 0) return null;
     const cases = accAll.filter(r => r.fecha>=ini && r.fecha<=fin &&
       prefijos.some(pre => (r.clasificacion||'').startsWith(pre))).length;
+    if(cases === 0) return 0;              // sin casos -> 0 (aunque no haya exposicion cargada)
+    const exp = computeExposureHours(ini, fin);
+    if(exp === 0) return null;             // hay casos pero no hay exposicion -> s/d
     return +((cases*OCIMF_MULTIPLIER)/exp).toFixed(2);
   };
   const ncCount = (orig, aud, amb, ini, fin) => (fin < ini) ? 0 : ncAll.filter(r =>
@@ -2041,7 +2050,7 @@ async function exportRecordToWord(id){
 }
 
 /* ============ INIT ============ */
-Object.assign(window, { addAccion, addAttachmentFile, addAttachmentManual, addCatalogItem, addDotacionMes, addLeccion, addVessel, clearFilters, closeModal, deleteRecord, exportData, exportRecordToWord, openAttachment, openCatalogManager, openRecordForm, printChartsReport, printCompanyReport, removeAccion, removeAttachment, removeCatalogItem, removeDotacionMes, removeLeccion, removeVessel, renderAuditNcKpi, renderOcimfKpi, renderTable, saveRecord, setCompanyLogo, setSiteFilter, setTypeFilter, toggleCategoriaOtro, toggleTipificacionCausaOtro, updateAccionField, updateVesselOptions, validateEstadoCierre, refreshData, logoutHsqe });
+Object.assign(window, { addAccion, addAttachmentFile, addAttachmentManual, addCatalogItem, addDotacionMes, addLeccion, addVessel, clearFilters, closeModal, deleteRecord, exportData, exportRecordToWord, openAttachment, openCatalogManager, openRecordForm, printChartsReport, printCompanyReport, removeAccion, removeAttachment, removeCatalogItem, removeDotacionMes, removeLeccion, removeVessel, renderAuditNcKpi, renderOcimfKpi, renderScoreCard, setScoreCardYear, setScoreCardTarget, renderTable, saveRecord, setCompanyLogo, setSiteFilter, setTypeFilter, toggleCategoriaOtro, toggleTipificacionCausaOtro, updateAccionField, updateVesselOptions, validateEstadoCierre, refreshData, logoutHsqe });
 
 async function logoutHsqe(){
   await supabase.auth.signOut();
