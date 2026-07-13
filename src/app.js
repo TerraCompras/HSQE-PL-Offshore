@@ -317,6 +317,9 @@ function renderTypeNav(){
     const c = filtered.filter(r=>r.tipo===k).length;
     html += navItem(k, TYPES[k].label, TYPES[k].color, c);
   });
+  html += `<div class="nav-item ${currentTypeFilter==='KPI'?'active':''}" onclick="setTypeFilter('KPI')" style="margin-top:6px;">
+    <span class="nav-dot" style="background:#0A3A66"></span>KPI HSQE
+  </div>`;
   wrap.innerHTML = html;
 }
 function navItem(key, label, color, count){
@@ -419,7 +422,7 @@ function computeExposureHours(desde, hasta){
 function renderOcimfKpi(){
   const panel = document.getElementById('ocimfKpiPanel');
   if(!panel) return;
-  if(currentTypeFilter !== 'ACC' && currentTypeFilter !== 'ALL'){ panel.style.display = 'none'; return; }
+  if(currentTypeFilter !== 'KPI'){ panel.style.display = 'none'; return; }
   panel.style.display = 'block';
 
   const desdeEl = document.getElementById('ocimfDesde');
@@ -471,7 +474,7 @@ function renderOcimfKpi(){
 function renderAuditNcKpi(){
   const panel = document.getElementById('auditNcKpiPanel');
   if(!panel) return;
-  if(currentTypeFilter !== 'NC' && currentTypeFilter !== 'ALL'){ panel.style.display = 'none'; return; }
+  if(currentTypeFilter !== 'KPI'){ panel.style.display = 'none'; return; }
   panel.style.display = 'block';
 
   const desdeEl = document.getElementById('auditNcDesde');
@@ -731,15 +734,42 @@ function renderBrandLogo(){
   const logo = co ? getCompanyLogo(co.id) : null;
   el.innerHTML = logo ? `<div class="brand-logo-box"><img src="${logo}"></div>` : '';
 }
+// Alterna entre el panel normal (KPIs, graficos, tabla) y la vista dedicada "KPI HSQE".
+function setKpiViewMode(kpiMode){
+  const chartsHeader = document.getElementById('chartsSectionLabel')
+    ? document.getElementById('chartsSectionLabel').parentElement : null;
+  const toggles = [
+    document.getElementById('kpiRow'),
+    document.querySelector('.chart-row'),
+    document.querySelector('.filters'),
+    document.getElementById('tableWrap'),
+    document.querySelector('.topbar button.btn'),
+  ];
+  toggles.forEach(el=>{ if(el) el.style.display = kpiMode ? 'none' : ''; });
+  if(chartsHeader) chartsHeader.style.display = kpiMode ? 'none' : 'flex';
+}
+
 function renderAll(){
   renderBrandLogo();
   renderSiteSelect();
   renderTypeNav();
-  renderKPIs();
-  renderOcimfKpi();
-  renderAuditNcKpi();
-  renderCharts();
-  renderTable();
+
+  const kpiMode = currentTypeFilter === 'KPI';
+  setKpiViewMode(kpiMode);
+
+  if(kpiMode){
+    document.getElementById('viewTitle').textContent = 'KPI HSQE';
+    document.getElementById('viewMeta').textContent = 'Indicadores OCIMF y No Conformidades en auditorias ISM/ISO';
+    renderOcimfKpi();
+    renderAuditNcKpi();
+  } else {
+    renderKPIs();
+    renderOcimfKpi();
+    renderAuditNcKpi();
+    renderCharts();
+    renderTable();
+  }
+
   const btn = document.getElementById('printReportBtn');
   if(btn){
     btn.textContent = currentSiteFilter==='ALL' ? '🖨 Imprimir PDF — Todos los sitios' : `🖨 Imprimir PDF — ${currentSiteFilter}`;
@@ -1543,7 +1573,7 @@ function printChartsReport(){
 
   // KPI OCIMF (solo si la vista actual es Accidente Personal): se clona con los valores ya calculados en pantalla
   let ocimfHtml = '';
-  if((currentTypeFilter === 'ACC' || currentTypeFilter === 'ALL') && document.getElementById('ocimfKpiPanel').style.display !== 'none'){
+  if(currentTypeFilter === 'KPI' && document.getElementById('ocimfKpiPanel').style.display !== 'none'){
     const desde = document.getElementById('ocimfDesde').value;
     const hasta = document.getElementById('ocimfHasta').value;
     const ocimfCardsHtml = document.getElementById('ocimfKpiRow').outerHTML;
@@ -1558,7 +1588,7 @@ function printChartsReport(){
 
   // KPI — No Conformidades en Auditorías ISM/ISO (solo si la vista actual es NC)
   let auditNcHtml = '';
-  if((currentTypeFilter === 'NC' || currentTypeFilter === 'ALL') && document.getElementById('auditNcKpiPanel').style.display !== 'none'){
+  if(currentTypeFilter === 'KPI' && document.getElementById('auditNcKpiPanel').style.display !== 'none'){
     const auditDesde = document.getElementById('auditNcDesde').value;
     const auditHasta = document.getElementById('auditNcHasta').value;
     const auditNcCardsHtml = document.getElementById('auditNcKpiRow').outerHTML;
