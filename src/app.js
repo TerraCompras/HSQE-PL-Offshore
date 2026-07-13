@@ -735,9 +735,8 @@ function renderBrandLogo(){
   el.innerHTML = logo ? `<div class="brand-logo-box"><img src="${logo}"></div>` : '';
 }
 // Alterna entre el panel normal (KPIs, graficos, tabla) y la vista dedicada "KPI HSQE".
+// El encabezado con el boton de impresion queda SIEMPRE visible; solo cambian sus textos.
 function setKpiViewMode(kpiMode){
-  const chartsHeader = document.getElementById('chartsSectionLabel')
-    ? document.getElementById('chartsSectionLabel').parentElement : null;
   const toggles = [
     document.getElementById('kpiRow'),
     document.querySelector('.chart-row'),
@@ -746,7 +745,16 @@ function setKpiViewMode(kpiMode){
     document.querySelector('.topbar button.btn'),
   ];
   toggles.forEach(el=>{ if(el) el.style.display = kpiMode ? 'none' : ''; });
-  if(chartsHeader) chartsHeader.style.display = kpiMode ? 'none' : 'flex';
+
+  const label = document.getElementById('chartsSectionLabel');
+  const header = label ? label.parentElement : null;
+  const printBtn = header ? header.querySelector('button') : null;
+  if(kpiMode){
+    if(label) label.textContent = 'Indicadores KPI';
+    if(printBtn) printBtn.textContent = '\uD83D\uDDA8 Imprimir KPI (PDF)';
+  } else if(printBtn){
+    printBtn.textContent = '\uD83D\uDDA8 Imprimir graficos (PDF)';
+  }
 }
 
 function renderAll(){
@@ -1566,10 +1574,11 @@ function printChartsReport(){
   const fechaHora = now.toLocaleDateString('es-AR') + ' ' + now.toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
   const co = DATA.companies[0] || null;
   const logo = co ? getCompanyLogo(co.id) : null;
-  const scopeLabel = document.getElementById('chartsSectionLabel').textContent;
+  const kpiMode = currentTypeFilter === 'KPI';
+  const scopeLabel = kpiMode ? 'KPI HSQE' : document.getElementById('chartsSectionLabel').textContent;
 
   // KPIs: se clona tal cual se ve en pantalla
-  const kpiHtml = document.getElementById('kpiRow').outerHTML;
+  const kpiHtml = kpiMode ? '' : document.getElementById('kpiRow').outerHTML;
 
   // KPI OCIMF (solo si la vista actual es Accidente Personal): se clona con los valores ya calculados en pantalla
   let ocimfHtml = '';
@@ -1608,26 +1617,32 @@ function printChartsReport(){
     {canvas:'chartEmpresa', titleEl:'chartTitle3', obj:charts.empresa},
     {canvas:'chartCausa', titleEl:'chartTitle4', obj:charts.causa},
   ];
-  let chartsHtml = '<div class="chart-row">';
-  chartDefs.forEach(cd=>{
-    const canvasEl = document.getElementById(cd.canvas);
-    const title = document.getElementById(cd.titleEl).textContent;
-    if(!canvasEl || !cd.obj) return;
-    const img = canvasEl.toDataURL('image/png', 1.0);
-    chartsHtml += `<div class="chart-card"><h3>${title}</h3><img src="${img}" style="width:100%;"></div>`;
-  });
-  chartsHtml += '</div>';
+  let chartsHtml = '';
+  if(!kpiMode){
+    chartsHtml = '<div class="chart-row">';
+    chartDefs.forEach(cd=>{
+      const canvasEl = document.getElementById(cd.canvas);
+      const title = document.getElementById(cd.titleEl).textContent;
+      if(!canvasEl || !cd.obj) return;
+      const img = canvasEl.toDataURL('image/png', 1.0);
+      chartsHtml += `<div class="chart-card"><h3>${title}</h3><img src="${img}" style="width:100%;"></div>`;
+    });
+    chartsHtml += '</div>';
+  }
 
   // Tabla: se clona la tabla tal cual se ve en pantalla (mismos filtros aplicados), sin la columna de acción de impresión
-  let tableHtml = document.getElementById('tableWrap').innerHTML;
-  tableHtml = tableHtml.replace(/<th>\s*<\/th>\s*<\/tr>/, '</tr>');
-  tableHtml = tableHtml.replace(/<td[^>]*>\s*<button[^>]*>📄<\/button>\s*<\/td>/g, '');
+  let tableHtml = '';
+  if(!kpiMode){
+    tableHtml = document.getElementById('tableWrap').innerHTML;
+    tableHtml = tableHtml.replace(/<th>\s*<\/th>\s*<\/tr>/, '</tr>');
+    tableHtml = tableHtml.replace(/<td[^>]*>\s*<button[^>]*>📄<\/button>\s*<\/td>/g, '');
+  }
 
   container.innerHTML = `<div class="pr-record">
     <table style="width:100%;border-collapse:collapse;margin-bottom:14px;">
       <tr>
         <td style="width:70%;vertical-align:middle;border-bottom:3px solid #002247;padding-bottom:8px;">
-          <div class="pr-title">INTEGRA · MÓDULO HSQE — GRÁFICOS</div>
+          <div class="pr-title">INTEGRA · MÓDULO HSQE — ${kpiMode ? 'KPI HSQE' : 'GRÁFICOS'}</div>
           <div class="pr-sub">${scopeLabel} · ${co?co.name:''}${currentSiteFilter!=='ALL' ? ' — '+currentSiteFilter : ''} · Generado el ${fechaHora}</div>
         </td>
         <td style="width:30%;text-align:right;">${logo?`<img src="${logo}" style="max-height:60px;max-width:160px;">`:''}</td>
@@ -1637,10 +1652,10 @@ function printChartsReport(){
     ${chartsHtml}
     ${ocimfHtml}
     ${auditNcHtml}
-    <div style="margin-top:18px;">
+    ${kpiMode ? '' : `<div style="margin-top:18px;">
       <h3 style="font-family:'Saira';font-size:16px;color:#002247;border-bottom:2px solid #0A3A66;padding-bottom:4px;">Registros incluidos</h3>
       ${tableHtml}
-    </div>
+    </div>`}
   </div>`;
   window.print();
 }
