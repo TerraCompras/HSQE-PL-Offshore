@@ -111,6 +111,7 @@ async function loadData(){
     DATA.records   = (regRes.data || []).map(r => r.data);
     DATA.catalogos = (catRes.data && catRes.data.data) ? catRes.data.data : {};
     DATA.companies = (cfgRes.data && cfgRes.data.data && Array.isArray(cfgRes.data.data.companies)) ? cfgRes.data.data.companies : [];
+    DATA.scorecardTargets = (cfgRes.data && cfgRes.data.data && cfgRes.data.data.scorecardTargets) ? cfgRes.data.data.scorecardTargets : { ...SCORECARD_DEFAULT_TARGETS };
     if(DATA.companies.length === 0){ seedDefaults(); await saveConfig(); }
   }catch(e){
     console.error('Error cargando datos HSQE:', e && e.message ? e.message : e);
@@ -170,7 +171,7 @@ async function saveCatalogos(){
 async function saveConfig(){
   try{
     const { error } = await supabase.from('hsqe_config')
-      .upsert({ id: 1, data: { companies: DATA.companies }, updated_at: new Date().toISOString() });
+      .upsert({ id: 1, data: { companies: DATA.companies, scorecardTargets: DATA.scorecardTargets }, updated_at: new Date().toISOString() });
     if(error) throw error;
     return true;
   }catch(e){
@@ -384,6 +385,7 @@ function renderKPIs(){
 const OCIMF_EXPOSURE_CREW = 12;
 const OCIMF_HOURS_PER_DAY = 24;
 const OCIMF_MULTIPLIER = 1000000;
+const SCORECARD_DEFAULT_TARGETS = { trcf:20, ltif:20, nnc_cia_ext:4, nnc_cia_int:4, nnc_buq_ext:4, nnc_buq_int:4 };
 
 function daysBetweenInclusive(desde, hasta){
   if(!desde || !hasta) return 0;
@@ -394,7 +396,7 @@ function daysBetweenInclusive(desde, hasta){
 }
 function crewForMonth(ym){
   const dot = (DATA.catalogos && DATA.catalogos.dotacionMensual) || {};
-  return (typeof dot[ym] === 'number') ? dot[ym] : OCIMF_EXPOSURE_CREW;
+  return (typeof dot[ym] === 'number') ? dot[ym] : 0; // sin default: mes sin dotacion cargada = 0 h
 }
 function mesesEnRango(desde, hasta){
   const meses = [];
@@ -443,16 +445,18 @@ function renderOcimfKpi(){
 
   const dias = daysBetweenInclusive(desde, hasta);
   const exposicionHoras = computeExposureHours(desde, hasta);
-  const tasa = n => exposicionHoras > 0 ? +((n * OCIMF_MULTIPLIER) / exposicionHoras).toFixed(2) : 0;
+  const sinExp = exposicionHoras === 0;
+  const tasa = n => sinExp ? null : +((n * OCIMF_MULTIPLIER) / exposicionHoras).toFixed(2);
 
   const ltif = tasa(lti);
   const trcf = tasa(trc);
+  const showTasa = v => v === null ? 's/d' : v;
 
   const cards = [
     {val: lti, lbl:'LTI — Lesión con tiempo perdido', alert: lti>0},
     {val: trc, lbl:'Casos registrables (LTI + RWC + MTI)', alert: trc>0},
-    {val: ltif, lbl:'LTIF (cada 1.000.000 h-h)', alert: ltif>0},
-    {val: trcf, lbl:'TRCF (cada 1.000.000 h-h)', alert: trcf>0},
+    {val: showTasa(ltif), lbl:'LTIF (cada 1.000.000 h-h)', alert: ltif!==null && ltif>0},
+    {val: showTasa(trcf), lbl:'TRCF (cada 1.000.000 h-h)', alert: trcf!==null && trcf>0},
   ];
   document.getElementById('ocimfKpiRow').innerHTML = cards.map(c=>`
     <div class="kpi-card ${c.alert?'alert':''}">
@@ -462,7 +466,7 @@ function renderOcimfKpi(){
 
   const dot = (DATA.catalogos && DATA.catalogos.dotacionMensual) || {};
   const meses = mesesEnRango(desde, hasta);
-  const dotacionTxt = meses.map(m => `${fmtMesAnio(m)}: ${crewForMonth(m)}${typeof dot[m]==='number' ? '' : ' (default)'} trip.`).join(' · ');
+  const dotacionTxt = meses.map(m => `${fmtMesAnio(m)}: ${crewForMonth(m)}${typeof dot[m]==='number' ? '' : ' (sin cargar)'} trip.`).join(' · ');
 
   document.getElementById('ocimfExposureInfo').innerHTML =
     `Período: ${dias} día(s) · Exposición total: <b>${exposicionHoras.toLocaleString('es-AR')} horas-hombre</b> (24 h/día × dotación mensual cargada en Catálogos) · ` +
@@ -508,16 +512,21 @@ function renderAuditNcKpi(){
 
 
 /* ============ SCORE CARD (KPI HSQE) ============ */
-// Targets anuales del tablero. Editables aca si cambian de un ano a otro.
-const SCORECARD_TARGETS = { trcf:20, ltif:20, nnc:4 };
+const SCORECARD_YEAR_MIN = 2025, SCORECARD_YEAR_MAX = 2032;
+let scoreCardYear = null;
 
 function setScoreCardYear(v){
-  const panel = document.getElementById('scoreCardPanel');
-  if(!panel) return;
-  panel.dataset.year = v;
-  const sel = document.getElementById('scoreCardYearSel');
-  if(sel) sel.value = String(v);
+  scoreCardYear = parseInt(v, 10) || new Date().getFullYear();
   renderScoreCard();
+}
+
+function setScoreCardTarget(key, v){
+  if(!DATA.scorecardTargets) DATA.scorecardTargets = { ...SCORECARD_DEFAULT_TARGETS };
+  const num = parseFloat(String(v).replace(',', '.'));
+  DATA.scorecardTargets[key] = isNaN(num) ? 0 : num;
+  saveConfig();          // persiste en Supabase (hsqe_config)
+  renderScoreCard();     // refresca el semaforo
+  showToast('Target actualizado');
 }
 
 function renderScoreCard(){
@@ -532,28 +541,15 @@ function renderScoreCard(){
   }
   panel.style.display = 'block';
 
-  const yearNow = new Date().getFullYear();
+  if(!DATA.scorecardTargets) DATA.scorecardTargets = { ...SCORECARD_DEFAULT_TARGETS };
+  const T = DATA.scorecardTargets;
 
-  // Marco (titulo + selector de ano): se arma una sola vez.
-  // Asi el <select> no se destruye a si mismo al cambiar el ano; solo se re-dibuja la tabla.
-  if(!document.getElementById('scoreCardTableWrap')){
-    const opts = [];
-    for(let yy=yearNow-4; yy<=yearNow+2; yy++) opts.push(`<option value="${yy}">${yy}</option>`);
-    panel.innerHTML = `
-      <div class="chart-card" style="padding:0;overflow:hidden;">
-        <div style="display:flex;justify-content:space-between;align-items:center;background:#002247;color:#fff;padding:10px 14px;">
-          <div style="font-family:'Saira',sans-serif;font-weight:700;letter-spacing:0.06em;font-size:16px;">SCORE CARD</div>
-          <div style="display:flex;align-items:center;gap:8px;font-size:12px;">
-            <span style="opacity:.85;">Ano</span>
-            <select id="scoreCardYearSel" onchange="setScoreCardYear(this.value)" style="width:auto;background:#0A3A66;color:#fff;border:1px solid rgba(255,255,255,0.25);padding:4px 8px;">${opts.join('')}</select>
-          </div>
-        </div>
-        <div id="scoreCardTableWrap"></div>
-      </div>`;
-    document.getElementById('scoreCardYearSel').value = String(panel.dataset.year || yearNow);
+  if(!scoreCardYear){
+    const yn = new Date().getFullYear();
+    scoreCardYear = Math.min(SCORECARD_YEAR_MAX, Math.max(SCORECARD_YEAR_MIN, yn));
   }
+  const y = scoreCardYear;
 
-  const y = parseInt(panel.dataset.year || String(yearNow), 10) || yearNow;
   const quarters = [
     { q:'1Q', ini:`${y}-01-01`, fin:`${y}-03-31` },
     { q:'2Q', ini:`${y}-04-01`, fin:`${y}-06-30` },
@@ -562,18 +558,20 @@ function renderScoreCard(){
   ];
   const yIni = `${y}-01-01`, yFin = `${y}-12-31`;
   const hoy = new Date().toISOString().slice(0,10);
-  const effFin = d => d < hoy ? d : hoy;   // acumulado "hasta el momento": nunca proyecta al futuro
+  const effFin = d => d < hoy ? d : hoy;   // TOTAL: acumulado hasta hoy
 
   // Misma logica y fuente que los paneles de arriba (respeta el filtro Sitio/Buque).
   const accAll = filteredRecords(true).filter(r => r.tipo==='ACC' && r.incluir_kpi);
   const ncAll  = filteredRecords(true).filter(r => r.tipo==='NC');
 
+  // Tasa OCIMF: null (s/d) si no hay exposicion cargada en ese periodo.
   const rate = (prefijos, ini, fin) => {
-    if(fin < ini) return 0;
+    if(fin < ini) return null;
+    const exp = computeExposureHours(ini, fin);
+    if(exp === 0) return null;
     const cases = accAll.filter(r => r.fecha>=ini && r.fecha<=fin &&
       prefijos.some(pre => (r.clasificacion||'').startsWith(pre))).length;
-    const exp = computeExposureHours(ini, fin);
-    return exp>0 ? +((cases*OCIMF_MULTIPLIER)/exp).toFixed(2) : 0;
+    return +((cases*OCIMF_MULTIPLIER)/exp).toFixed(2);
   };
   const ncCount = (orig, aud, amb, ini, fin) => (fin < ini) ? 0 : ncAll.filter(r =>
     r.fecha>=ini && r.fecha<=fin &&
@@ -582,52 +580,74 @@ function renderScoreCard(){
   ).length;
 
   const rows = [
-    { kpi:'Accidentes personales TRCF',            target:SCORECARD_TARGETS.trcf, kind:'rate',  fn:(i,f)=>rate(['LTI','MTI','RWC'],i,f) },
-    { kpi:'Accidentes personales LTIF',            target:SCORECARD_TARGETS.ltif, kind:'rate',  fn:(i,f)=>rate(['LTI'],i,f) },
-    { kpi:'NNC Cia en Aud. Externas ISM - ISO',    target:SCORECARD_TARGETS.nnc,  kind:'count', fn:(i,f)=>ncCount(['ISM','ISO'],'Externa','Oficina',i,f) },
-    { kpi:'NNC Cia en Aud. Internas ISM - ISO',    target:SCORECARD_TARGETS.nnc,  kind:'count', fn:(i,f)=>ncCount(['ISM','ISO'],'Interna','Oficina',i,f) },
-    { kpi:'NNC Buques en Aud. Externas ISM',       target:SCORECARD_TARGETS.nnc,  kind:'count', fn:(i,f)=>ncCount(['ISM'],'Externa','Buques',i,f) },
-    { kpi:'NNC Buques en Aud. Internas ISM',       target:SCORECARD_TARGETS.nnc,  kind:'count', fn:(i,f)=>ncCount(['ISM'],'Interna','Buques',i,f) },
+    { key:'trcf',        kpi:'Accidentes personales TRCF',         kind:'rate',  fn:(i,f)=>rate(['LTI','MTI','RWC'],i,f) },
+    { key:'ltif',        kpi:'Accidentes personales LTIF',         kind:'rate',  fn:(i,f)=>rate(['LTI'],i,f) },
+    { key:'nnc_cia_ext', kpi:'NNC Cia en Aud. Externas ISM - ISO', kind:'count', fn:(i,f)=>ncCount(['ISM','ISO'],'Externa','Oficina',i,f) },
+    { key:'nnc_cia_int', kpi:'NNC Cia en Aud. Internas ISM - ISO', kind:'count', fn:(i,f)=>ncCount(['ISM','ISO'],'Interna','Oficina',i,f) },
+    { key:'nnc_buq_ext', kpi:'NNC Buques en Aud. Externas ISM',    kind:'count', fn:(i,f)=>ncCount(['ISM'],'Externa','Buques',i,f) },
+    { key:'nnc_buq_int', kpi:'NNC Buques en Aud. Internas ISM',    kind:'count', fn:(i,f)=>ncCount(['ISM'],'Interna','Buques',i,f) },
   ];
 
-  const fmt = v => Number.isInteger(v) ? String(v) : v.toFixed(2);
+  const fmt = v => v===null ? 's/d' : (Number.isInteger(v) ? String(v) : v.toFixed(2));
   const dmy = iso => { const [Y,M,D]=iso.split('-'); return `${D}/${M}/${Y}`; };
 
   const bodyHtml = rows.map(row=>{
-    // Cada trimestre se calcula hasta el fin del trimestre o hasta hoy (lo que ocurra primero).
-    // Cada columna es ACUMULADA: desde el 1-ene hasta el cierre de ese trimestre (o hasta hoy si aun no cerro).
-    // Asi coincide con filtrar los paneles de arriba de 01-ene al cierre del trimestre.
-    const qv = quarters.map(q=>{
-      if(q.ini > hoy) return null;               // trimestre futuro: sin dato todavia
-      const fin = q.fin <= hoy ? q.fin : hoy;    // trimestre completo, o parcial hasta hoy
-      return row.fn(yIni, fin);
-    });
-    const total = row.fn(yIni, effFin(yFin));    // acumulado del ano hasta hoy
-    const qCells = qv.map(v=>`<td style="text-align:center;padding:7px 8px;border:1px solid #DBE0E6;">${v===null?'':fmt(v)}</td>`).join('');
+    const target = (typeof T[row.key]==='number') ? T[row.key] : (SCORECARD_DEFAULT_TARGETS[row.key] || 0);
+    const qv = quarters.map(q=>row.fn(yIni, q.fin));   // acumulado 01-ene al cierre de cada Q
+    const total = row.fn(yIni, effFin(yFin));          // acumulado hasta hoy
+
+    // Semaforo: estas KPI son "menor es mejor" (el target es un maximo admisible).
+    let bg = '#E9EDF1', dot = '#8B96A1';                       // s/d -> neutro
+    if(total !== null){
+      if(total <= target){ bg = '#CDE9CE'; dot = '#1E7A4A'; }  // cumple
+      else { bg = '#F3C9C9'; dot = '#C0392B'; }                // no cumple
+    }
+
+    const qCells = qv.map(v=>`<td style="text-align:center;padding:7px 8px;border:1px solid #DBE0E6;">${fmt(v)}</td>`).join('');
     return `<tr>
       <td style="padding:7px 10px;border:1px solid #DBE0E6;font-weight:600;">${row.kpi}</td>
       <td style="text-align:center;padding:7px 8px;border:1px solid #DBE0E6;font-style:italic;color:#5B6671;">HSQE-ISM</td>
-      <td style="text-align:center;padding:7px 8px;border:1px solid #DBE0E6;background:#FFF3B0;font-weight:700;">${row.target}</td>
+      <td style="text-align:center;padding:5px 6px;border:1px solid #DBE0E6;background:#FFF3B0;">
+        <input type="number" step="any" value="${target}" onchange="setScoreCardTarget('${row.key}', this.value)"
+          style="width:64px;text-align:center;font-weight:700;background:transparent;border:1px solid #E0D48A;border-radius:4px;padding:3px 4px;color:#5B4C00;" />
+      </td>
       ${qCells}
-      <td style="text-align:center;padding:7px 8px;border:1px solid #DBE0E6;background:#CDE9CE;font-weight:700;">${fmt(total)}</td>
+      <td style="text-align:center;padding:7px 8px;border:1px solid #DBE0E6;background:${bg};font-weight:700;white-space:nowrap;">
+        <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${dot};margin-right:6px;vertical-align:middle;"></span>${fmt(total)}
+      </td>
     </tr>`;
   }).join('');
 
   const thQ = quarters.map(q=>`<th style="background:#6B7681;color:#fff;text-align:center;padding:6px 8px;border:1px solid #DBE0E6;font-size:11px;">${q.q}<br><span style="font-weight:400;font-size:10px;">${dmy(q.fin)}</span></th>`).join('');
 
-  document.getElementById('scoreCardTableWrap').innerHTML = `
-    <table id="scoreCardTable" style="width:100%;border-collapse:collapse;font-size:12.5px;background:#fff;">
-      <thead>
-        <tr>
-          <th style="background:#E9EDF1;text-align:left;padding:6px 10px;border:1px solid #DBE0E6;">KPI</th>
-          <th style="background:#E9EDF1;text-align:center;padding:6px 8px;border:1px solid #DBE0E6;">Gerencia</th>
-          <th style="background:#FFF3B0;text-align:center;padding:6px 8px;border:1px solid #DBE0E6;">Target ${y}</th>
-          ${thQ}
-          <th style="background:#1E7A4A;color:#fff;text-align:center;padding:6px 8px;border:1px solid #DBE0E6;">TOTAL</th>
-        </tr>
-      </thead>
-      <tbody>${bodyHtml}</tbody>
-    </table>`;
+  const yearOpts = [];
+  for(let yy=SCORECARD_YEAR_MIN; yy<=SCORECARD_YEAR_MAX; yy++) yearOpts.push(`<option value="${yy}" ${yy===y?'selected':''}>${yy}</option>`);
+
+  panel.innerHTML = `
+    <div class="chart-card" style="padding:0;overflow:hidden;">
+      <div style="display:flex;justify-content:space-between;align-items:center;background:#002247;color:#fff;padding:10px 14px;">
+        <div style="font-family:'Saira',sans-serif;font-weight:700;letter-spacing:0.06em;font-size:16px;">SCORE CARD</div>
+        <div style="display:flex;align-items:center;gap:8px;font-size:12px;">
+          <span style="opacity:.85;">Año</span>
+          <select onchange="setScoreCardYear(this.value)" style="width:auto;background:#0A3A66;color:#fff;border:1px solid rgba(255,255,255,0.25);padding:4px 8px;">${yearOpts.join('')}</select>
+        </div>
+      </div>
+      <table id="scoreCardTable" style="width:100%;border-collapse:collapse;font-size:12.5px;background:#fff;">
+        <thead>
+          <tr>
+            <th style="background:#E9EDF1;text-align:left;padding:6px 10px;border:1px solid #DBE0E6;">KPI</th>
+            <th style="background:#E9EDF1;text-align:center;padding:6px 8px;border:1px solid #DBE0E6;">Gerencia</th>
+            <th style="background:#FFF3B0;text-align:center;padding:6px 8px;border:1px solid #DBE0E6;">Target ${y}</th>
+            ${thQ}
+            <th style="background:#1E7A4A;color:#fff;text-align:center;padding:6px 8px;border:1px solid #DBE0E6;">TOTAL</th>
+          </tr>
+        </thead>
+        <tbody>${bodyHtml}</tbody>
+      </table>
+      <div style="padding:8px 14px;font-size:11px;color:#5B6671;background:#F7F9FB;border-top:1px solid #DBE0E6;">
+        🟢 cumple el target &nbsp;·&nbsp; 🔴 no cumple (valor mayor al target) &nbsp;·&nbsp; el Target es editable por fila &nbsp;·&nbsp; s/d = sin exposición cargada
+      </div>
+    </div>`;
 }
 
 /* ============ RENDER: CHARTS ============ */
@@ -1553,7 +1573,7 @@ function dotacionSectionHtml(){
     <div class="section-title">Dotación de Tripulantes por Mes</div>
     <div style="font-size:11px;color:var(--graphite-light);margin:-4px 0 8px;">
       Cantidad de tripulantes a bordo en cada mes. Se usa como base de exposición para el KPI OCIMF (LTIF / TRCF) de Accidente Personal.
-      Si un mes no tiene valor cargado, se usa el valor por defecto (${OCIMF_EXPOSURE_CREW} tripulantes).
+      Si un mes no tiene valor cargado, ese mes no computa exposición (0 h) y las tasas de ese período no se calculan.
     </div>
     <div class="badge-strip" style="margin-bottom:8px;">
       ${meses.length===0 ? '<span style="font-size:12px;color:var(--graphite-light)">Sin meses cargados — se usa el valor por defecto en todos los períodos.</span>' :
