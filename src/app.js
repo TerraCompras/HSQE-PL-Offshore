@@ -585,6 +585,25 @@ function getChartSpecs(list, tipo){
   return { scope: TYPES[tipo].label, specs: [ specSeveridad, specEstado, specInstalacion ] };
 }
 
+// Divide etiquetas largas en varias lineas para que no se corten en el eje.
+function wrapChartLabel(label, maxChars=16){
+  const text = String(label);
+  if(text.length <= maxChars) return text;
+  const words = text.split(' ');
+  const lines = [];
+  let line = '';
+  for(const w of words){
+    if((line + ' ' + w).trim().length > maxChars){
+      if(line) lines.push(line.trim());
+      line = w;
+    } else {
+      line = (line + ' ' + w).trim();
+    }
+  }
+  if(line) lines.push(line.trim());
+  return lines;
+}
+
 function renderCharts(){
   const list = filteredRecords(false);
   Object.values(charts).forEach(c=>c && c.destroy());
@@ -602,10 +621,45 @@ function renderCharts(){
   specs.forEach((spec, i)=>{
     if(i >= canvasIds.length) return;
     document.getElementById(titleIds[i]).textContent = spec.title;
-    const opts = spec.kind === 'doughnut'
-      ? { plugins:{legend:{position:'bottom', labels:{boxWidth:10, font:{size:10}}}} }
-      : { plugins:{legend:{display:false}}, scales:{ [spec.indexAxis==='y'?'x':'y']:{beginAtZero:true, ticks:{precision:0}} }, indexAxis: spec.indexAxis||'x' };
-    charts[chartKeys[i]] = new Chart(document.getElementById(canvasIds[i]), {
+
+    const canvas = document.getElementById(canvasIds[i]);
+    // Envolver el canvas en un contenedor de altura controlada (una sola vez).
+    let host = canvas.parentElement;
+    if(!host.classList.contains('chart-canvas-host')){
+      host = document.createElement('div');
+      host.className = 'chart-canvas-host';
+      canvas.parentNode.insertBefore(host, canvas);
+      host.appendChild(canvas);
+    }
+    // Las barras horizontales crecen segun la cantidad de categorias; el resto, altura fija.
+    const isHBar = spec.kind === 'bar' && spec.indexAxis === 'y';
+    host.style.height = isHBar
+      ? Math.max(170, spec.labels.length * 30 + 30) + 'px'
+      : '210px';
+
+    let opts;
+    if(spec.kind === 'doughnut'){
+      opts = { responsive:true, maintainAspectRatio:false,
+        plugins:{legend:{position:'bottom', labels:{boxWidth:10, font:{size:10}}}} };
+    } else {
+      const catAxis = spec.indexAxis === 'y' ? 'y' : 'x';
+      const valAxis = spec.indexAxis === 'y' ? 'x' : 'y';
+      opts = {
+        responsive:true, maintainAspectRatio:false,
+        indexAxis: spec.indexAxis || 'x',
+        plugins:{legend:{display:false}},
+        scales:{
+          [valAxis]:{ beginAtZero:true, ticks:{precision:0} },
+          [catAxis]:{ ticks:{
+            autoSkip:false,
+            font:{size:10},
+            callback:function(value){ return wrapChartLabel(this.getLabelForValue(value)); }
+          } },
+        },
+      };
+    }
+
+    charts[chartKeys[i]] = new Chart(canvas, {
       type: spec.kind,
       data: { labels: spec.labels, datasets:[{ data: spec.data, backgroundColor: spec.colors.length>1 ? spec.colors : spec.labels.map((_,j)=>spec.colors[j % spec.colors.length]), borderRadius: spec.kind==='bar'?2:0 }] },
       options: opts,

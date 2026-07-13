@@ -67,10 +67,11 @@
   .kpi-card .lbl{font-size:11px;text-transform:uppercase;letter-spacing:0.07em;color:var(--graphite);margin-top:4px;}
 
   /* CHARTS */
-  .chart-row{display:grid;grid-template-columns:repeat(auto-fit, minmax(230px, 1fr));gap:14px;margin-bottom:24px;}
+  .chart-row{display:grid;grid-template-columns:repeat(auto-fit, minmax(230px, 1fr));gap:14px;margin-bottom:24px;align-items:start;}
   .chart-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;}
   .chart-card h3{font-size:14px;margin:0 0 8px;color:var(--navy);letter-spacing:0.03em;}
-  .chart-card canvas{max-height:180px;}
+  .chart-canvas-host{position:relative;width:100%;}
+  .chart-card canvas{max-height:none;}
 
   /* FILTERS */
   .filters{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center;}
