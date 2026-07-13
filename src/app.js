@@ -431,7 +431,7 @@ function renderOcimfKpi(){
   if(!hastaEl.value) hastaEl.value = new Date().toISOString().slice(0,10);
   const desde = desdeEl.value, hasta = hastaEl.value;
 
-  const list = filteredRecords(false).filter(r =>
+  const list = filteredRecords(true).filter(r =>
     r.tipo === 'ACC' && r.incluir_kpi && r.fecha >= desde && r.fecha <= hasta);
 
   const contar = prefijo => list.filter(r => (r.clasificacion||'').startsWith(prefijo)).length;
@@ -483,7 +483,7 @@ function renderAuditNcKpi(){
   if(!hastaEl.value) hastaEl.value = new Date().toISOString().slice(0,10);
   const desde = desdeEl.value, hasta = hastaEl.value;
 
-  const list = filteredRecords(false).filter(r => r.tipo === 'NC' && r.fecha >= desde && r.fecha <= hasta);
+  const list = filteredRecords(true).filter(r => r.tipo === 'NC' && r.fecha >= desde && r.fecha <= hasta);
   const cuenta = (origenes, auditoria, ambito) => list.filter(r =>
     origenes.includes(r.clasificacion_origen) && r.tipo_auditoria === auditoria && r.ambito_auditoria === ambito
   ).length;
