@@ -1641,11 +1641,32 @@ function printCompanyReport(){
 window.addEventListener('afterprint', ()=>{ document.getElementById('printReport').innerHTML = ''; });
 
 /* ============ IMPRESIÓN DE REGISTRO INDIVIDUAL ============ */
-function exportRecordToWord(id){
+// Convierte el logo a base64 para incrustarlo dentro del .doc (autocontenido).
+// Los logos subidos por el usuario ya vienen como data URI; los logos por
+// defecto (/PL.png, /cleansea.png) se descargan y se convierten al vuelo.
+async function logoToDataURL(src){
+  if(!src) return null;
+  if(src.startsWith('data:')) return src;
+  try{
+    const resp = await fetch(src);
+    const blob = await resp.blob();
+    return await new Promise((resolve, reject)=>{
+      const fr = new FileReader();
+      fr.onload  = ()=>resolve(fr.result);
+      fr.onerror = reject;
+      fr.readAsDataURL(blob);
+    });
+  }catch(e){
+    console.warn('No se pudo cargar el logo para el Word:', src, e);
+    return null; // seguimos sin logo en vez de romper la descarga
+  }
+}
+
+async function exportRecordToWord(id){
   const r = DATA.records.find(x=>x.id===id);
   if(!r){ showToast('No se encontró el registro'); return; }
   const co = DATA.companies.find(c=>c.id===r.empresa_id);
-  const logo = getCompanyLogo(r.empresa_id);
+  const logo = await logoToDataURL(getCompanyLogo(r.empresa_id));
   const now = new Date();
   const fechaHora = now.toLocaleDateString('es-AR') + ' ' + now.toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
   const tipoInfo = TYPES[r.tipo] || {label:r.tipo, color:'#333'};
