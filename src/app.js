@@ -279,6 +279,26 @@ function allVessels(){
 }
 
 /* ============ NAV / SIDEBAR ============ */
+
+/* Fix de layout: evita que el contenido del sidebar (categorias + config + sesion)
+   quede cortado cuando la suma de esas secciones supera el alto de la pantalla (100vh).
+   Se aplica desde el codigo (no toca style.css): agrega scroll interno propio al sidebar
+   y evita que el header/marca y el bloque de sesion se compriman. */
+function fixSidebarLayout(){
+  if(document.getElementById('sidebarScrollFix')) return;
+  const style = document.createElement('style');
+  style.id = 'sidebarScrollFix';
+  style.textContent = `
+    .sidebar{overflow-y:auto !important;overflow-x:hidden !important;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.25) transparent;}
+    .sidebar::-webkit-scrollbar{width:6px;}
+    .sidebar::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.18);border-radius:4px;}
+    .sidebar::-webkit-scrollbar-track{background:transparent;}
+    .sidebar .brand{flex-shrink:0;}
+    .sidebar .session-block{flex-shrink:0;}
+  `;
+  document.head.appendChild(style);
+}
+
 function renderSiteSelect(){
   const sel = document.getElementById('siteFilter');
   const sitios = (DATA.companies[0] && DATA.companies[0].vessels) || [];
@@ -1761,5 +1781,6 @@ export function initApp(session){
   const emailEl = document.getElementById('sessionEmail');
   if(emailEl && session && session.user) emailEl.textContent = session.user.email;
   document.querySelector('.app').style.display = 'flex';
+  fixSidebarLayout();
   loadData();
 }
