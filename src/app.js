@@ -529,14 +529,14 @@ function setScoreCardYear(v){
   renderScoreCard();
 }
 
-function setScoreCardTarget(key, v){
+async function setScoreCardTarget(key, v){
   const yr = scoreCardYear || new Date().getFullYear();
   const T = scorecardTargetsFor(yr);
   const num = parseFloat(String(v).replace(',', '.'));
   T[key] = isNaN(num) ? 0 : num;
-  saveConfig();          // persiste en Supabase (hsqe_config)
-  renderScoreCard();     // refresca el semaforo
-  showToast(`Target ${yr} actualizado`);
+  renderScoreCard();               // refresca UI/semaforo de inmediato
+  const ok = await saveConfig();   // persiste en Supabase (hsqe_config) y confirma
+  showToast(ok ? `Target ${yr} guardado ✓` : 'No se pudo guardar el target — revisá la conexión');
 }
 
 function renderScoreCard(){
@@ -612,10 +612,23 @@ function renderScoreCard(){
       else { bg = '#F3C9C9'; dot = '#C0392B'; }                // no cumple
     }
 
+    // Resultado del ano anterior (ano completo) + semaforo contra el target de ESE ano.
+    const py = y - 1;
+    const prevTotal = row.fn(`${py}-01-01`, effFin(`${py}-12-31`));
+    const prevT = DATA.scorecardTargets[String(py)] || SCORECARD_DEFAULT_TARGETS;
+    const prevTarget = (typeof prevT[row.key]==='number') ? prevT[row.key] : (SCORECARD_DEFAULT_TARGETS[row.key] || 0);
+    let pbg = '#E9EDF1', pdot = '#8B96A1';
+    if(prevTotal !== null){
+      if(prevTotal <= prevTarget){ pbg = '#CDE9CE'; pdot = '#1E7A4A'; }
+      else { pbg = '#F3C9C9'; pdot = '#C0392B'; }
+    }
+
     const qCells = qv.map(v=>`<td style="text-align:center;padding:7px 8px;border:1px solid #DBE0E6;">${fmt(v)}</td>`).join('');
     return `<tr>
       <td style="padding:7px 10px;border:1px solid #DBE0E6;font-weight:600;">${row.kpi}</td>
-      <td style="text-align:center;padding:7px 8px;border:1px solid #DBE0E6;font-style:italic;color:#5B6671;">HSQE-ISM</td>
+      <td style="text-align:center;padding:7px 8px;border:1px solid #DBE0E6;background:${pbg};font-weight:600;white-space:nowrap;">
+        <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${pdot};margin-right:6px;vertical-align:middle;"></span>${fmt(prevTotal)}
+      </td>
       <td style="text-align:center;padding:5px 6px;border:1px solid #DBE0E6;background:#FFF3B0;">
         <input type="number" step="any" value="${target}" onchange="setScoreCardTarget('${row.key}', this.value)"
           style="width:64px;text-align:center;font-weight:700;background:transparent;border:1px solid #E0D48A;border-radius:4px;padding:3px 4px;color:#5B4C00;" />
@@ -645,7 +658,7 @@ function renderScoreCard(){
         <thead>
           <tr>
             <th style="background:#E9EDF1;text-align:left;padding:6px 10px;border:1px solid #DBE0E6;">KPI</th>
-            <th style="background:#E9EDF1;text-align:center;padding:6px 8px;border:1px solid #DBE0E6;">Gerencia</th>
+            <th style="background:#E9EDF1;text-align:center;padding:6px 8px;border:1px solid #DBE0E6;">Resultado ${y-1}</th>
             <th style="background:#FFF3B0;text-align:center;padding:6px 8px;border:1px solid #DBE0E6;">Target ${y}</th>
             ${thQ}
             <th style="background:#1E7A4A;color:#fff;text-align:center;padding:6px 8px;border:1px solid #DBE0E6;">TOTAL</th>
@@ -857,10 +870,9 @@ function renderTable(){
     return `<tr onclick="openRecordForm('${r.id}')">
       <td><span class="id-tag">${r.id}</span></td>
       <td><span class="type-tag" style="background:${TYPES[r.tipo].color}20;color:${TYPES[r.tipo].color}">${TYPES[r.tipo].label}</span></td>
-      <td>${co?co.name:'—'}<br><span style="font-size:11px;color:var(--graphite-light)">${r.instalacion||''}</span></td>
+      <td>${r.instalacion||'—'}</td>
       <td class="mono" style="font-size:12px;white-space:nowrap;">${fmtDate(r.fecha)}</td>
-      <td class="desc-cell">${(r.descripcion||'').slice(0,80)}${(r.descripcion||'').length>80?'…':''}</td>
-      ${sevCell}
+      <td class="desc-cell" style="font-size:11.5px;">${(r.descripcion||'').slice(0,80)}${(r.descripcion||'').length>80?'…':''}</td>
       <td><div class="status-cell" style="white-space:nowrap;"><span class="status-dot" style="background:${STATUS[r.estado]}"></span>${r.estado}</div></td>
       <td class="mono ${isOverdue(r)?'overdue':''}" style="font-size:12px;white-space:nowrap;">${isOverdue(r)?'⚠ ':''}${resumen.vencimiento?fmtDate(resumen.vencimiento):'—'}</td>
       <td>${resumen.responsable}</td>
@@ -870,10 +882,10 @@ function renderTable(){
   }).join('');
 
   document.getElementById('tableWrap').innerHTML = `
-    <table>
+    <table style="font-size:12.5px;">
       <thead><tr>
-        <th>ID</th><th>Tipo</th><th>Empresa / Instalación</th><th>Fecha</th>
-        <th>Descripción</th>${mostrarSeveridad ? '<th>Severidad</th>' : ''}<th>Estado</th><th>Vencimiento</th><th>Responsable</th><th>Adj.</th><th></th>
+        <th>ID</th><th>Tipo</th><th>Instalación</th><th>Fecha</th>
+        <th>Descripción</th><th>Estado</th><th>Vencimiento</th><th>Responsable</th><th>Adj.</th><th></th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
