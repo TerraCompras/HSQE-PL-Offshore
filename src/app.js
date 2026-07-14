@@ -1180,37 +1180,7 @@ function openRecordForm(id){
           </div>
         </div>
 
-        <div class="section-title">Gestión</div>
-        <div class="field"><label>Estado</label>
-          <select id="f_estado" onchange="validateEstadoCierre(this)">${Object.keys(STATUS).map(s=>`<option ${r&&r.estado===s?'selected':''}>${s}</option>`).join('')}</select>
-        </div>
-        ${esResponsableHSE() ? (()=>{
-          const yaCerrado = !!(r && r.cierre_definitivo);
-          const habilita = (r ? todasAccionesCerradas(r) : false) || yaCerrado;
-          return `
-        <div class="section-title" style="margin-top:16px;padding-top:10px;border-top:2px solid var(--orange);">Gestión HSE (Responsable)</div>
-        <div class="field-row">
-          <div class="field" id="block_severidad"><label>Severidad</label>
-            <select id="f_severidad">${['Baja','Media','Alta','Crítica'].map(s=>`<option ${r&&r.severidad===s?'selected':''}>${s}</option>`).join('')}</select>
-          </div>
-          <div class="field"><label>Referencia normativa (ISM / ISO / SRT / MARPOL, etc.)</label>
-            <input type="text" id="f_referencia" value="${r?r.referencia_normativa||'':''}" placeholder="Ej: ISM Cód. 9, ISO 45001 Cl. 10.2">
-          </div>
-        </div>
-        ${ habilita ? `
-          <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--navy);cursor:pointer;text-transform:none;letter-spacing:0;font-weight:600;">
-            <input type="checkbox" id="f_cierre_definitivo" ${yaCerrado?'checked':''} style="width:auto;margin:0;margin-top:10px;"> Dar cierre definitivo al evento (se firmará como DPA en el reporte)
-          </label>
-          <div class="field" style="margin-top:8px;max-width:260px;"><label>Fecha de cierre definitivo</label>
-            <input type="date" id="f_cierre_definitivo_fecha" value="${r&&r.cierre_definitivo_fecha?r.cierre_definitivo_fecha:todayISO()}">
-          </div>
-          ${yaCerrado?`<div style="font-size:11px;color:var(--graphite-light);">Cerrado por ${r.cierre_definitivo_por||'—'}. Destildá la casilla para quitar el cierre.</div>`:''}
-        ` : `
-          <div style="font-size:12.5px;color:#C0392B;background:#F7D9D3;border:1px solid #C0392B;border-radius:6px;padding:10px 12px;">
-            ⚠ No se puede dar cierre definitivo: hay acciones sin cerrar. Cerrá todas las acciones y guardá antes de habilitar el cierre.
-          </div>
-        `}`;
-        })() : ''}
+
 
         <div class="section-title">Adjuntos</div>
         <div class="field-row">
@@ -1230,6 +1200,33 @@ function openRecordForm(id){
         <div style="font-size:11px;color:var(--graphite-light);margin-top:6px;">
           Nota: este prototipo registra el nombre y tamaño del archivo como referencia; no almacena el contenido del archivo.
         </div>
+        ${esResponsableHSE() ? (()=>{
+          const yaCerrado = !!(r && r.cierre_definitivo);
+          const habilita = (r ? todasAccionesCerradas(r) : false) || yaCerrado;
+          return `
+        <div class="section-title" style="margin-top:18px;padding-top:12px;border-top:2px solid var(--orange);">GESTIÓN (Responsable HSE)</div>
+        <div class="field-row">
+          <div class="field" id="block_severidad"><label>Severidad</label>
+            <select id="f_severidad">${['Baja','Media','Alta','Crítica'].map(s=>`<option ${r&&r.severidad===s?'selected':''}>${s}</option>`).join('')}</select>
+          </div>
+          <div class="field"><label>Referencia normativa (ISM / ISO / SRT / MARPOL, etc.)</label>
+            <input type="text" id="f_referencia" value="${r?r.referencia_normativa||'':''}" placeholder="Ej: ISM Cód. 9, ISO 45001 Cl. 10.2">
+          </div>
+        </div>
+        ${ habilita ? `
+          <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:var(--navy);cursor:pointer;text-transform:none;letter-spacing:0;font-weight:600;">
+            <input type="checkbox" id="f_cierre_definitivo" ${yaCerrado?'checked':''} style="width:auto;margin:0;"> Dar cierre definitivo al evento (se firmará como DPA en el reporte)
+          </label>
+          <div class="field" style="margin-top:8px;max-width:260px;"><label>Fecha de cierre definitivo</label>
+            <input type="date" id="f_cierre_definitivo_fecha" value="${r&&r.cierre_definitivo_fecha?r.cierre_definitivo_fecha:todayISO()}">
+          </div>
+          ${yaCerrado?`<div style="font-size:11px;color:var(--graphite-light);">Cerrado por ${r.cierre_definitivo_por||'—'}. Destildá la casilla para quitar el cierre.</div>`:''}
+        ` : `
+          <div style="margin-top:10px;font-size:12.5px;color:#C0392B;background:#F7D9D3;border:1px solid #C0392B;border-radius:6px;padding:10px 12px;">
+            ⚠ No se puede dar cierre definitivo: hay acciones sin cerrar. Cerrá todas las acciones y guardá antes de habilitar el cierre.
+          </div>
+        `}`;
+        })() : ''}
       </div>
       <div class="modal-foot">
         <div style="display:flex;gap:8px;">
@@ -1503,16 +1500,6 @@ async function saveRecord(){
   const tipoSel = get('f_tipo');
   const fechaSel = get('f_fecha');
   const tipoSinAcciones = TIPOS_SIN_CAUSA_ACCION.includes(tipoSel);
-  const estadoSel = get('f_estado');
-
-  if(!tipoSinAcciones && estadoSel === 'Cerrada'){
-    const pendientes = [...modalAccionesCorrectivas, ...modalAccionesPreventivas].filter(a => a.estado !== 'Cerrado');
-    if(pendientes.length > 0){
-      showToast('No se puede cerrar el reporte: hay acciones correctivas/preventivas sin cerrar');
-      return;
-    }
-  }
-
   // Cierre definitivo: solo el Responsable HSE lo administra; usuarios sin permiso preservan lo existente
   const prevRec = editingId ? DATA.records.find(x=>x.id===editingId) : null;
   const chkCierre = document.getElementById('f_cierre_definitivo');
@@ -1556,7 +1543,7 @@ async function saveRecord(){
     q_asiento_libro: getRadioVal('q_asiento_libro'),
     lecciones_aprendidas: JSON.parse(JSON.stringify(modalLecciones)),
     severidad: document.getElementById('f_severidad') ? (TIPOS_CON_SEVERIDAD.includes(tipoSel) ? get('f_severidad') : '') : (prevRec?prevRec.severidad||'':''),
-    estado: estadoSel,
+    estado: cierreDef ? 'Cerrada' : ((prevRec && prevRec.estado && prevRec.estado !== 'Cerrada') ? prevRec.estado : 'Abierta'),
     tipificacion_causa: getIf('f_tipificacion_causa'),
     tipificacion_causa_otro: getIf('f_tipificacion_causa_otro'),
     causa_raiz: getIf('f_causa'),
@@ -2151,15 +2138,13 @@ async function printRecordPdf(id){
     </table>`;
   if(cerrado){
     body += `
-    <table style="width:100%;border:2px solid ${NAVY};border-collapse:collapse;margin-top:8px;">
-      <tr><td style="padding:16px;text-align:center;">
-        <div style="font-size:9pt;color:${GRAPH};text-transform:uppercase;letter-spacing:0.5pt;margin-bottom:2px;">Cierre definitivo del evento</div>
-        <img src="${FIRMA_DPA}" style="max-height:70px;max-width:260px;margin:4px auto;display:block;">
-        <div style="border-top:1px solid #999;width:280px;margin:2px auto 0;padding-top:4px;">
-          <div style="font-size:11pt;font-weight:bold;color:${NAVY};">${FIRMA_DPA_NOMBRE}</div>
-          <div style="font-size:9.5pt;color:${GRAPH};">${FIRMA_DPA_CARGO}</div>
-          <div style="font-size:9pt;color:${GRAPH};margin-top:3px;">Cierre: ${fmtDate(r.cierre_definitivo_fecha)}</div>
-        </div>
+    <table style="width:100%;border:2px solid ${NAVY};border-collapse:collapse;margin-top:10px;page-break-inside:avoid;">
+      <tr><td style="padding:14px 16px;text-align:center;line-height:1.15;">
+        <div style="font-size:9pt;color:${GRAPH};text-transform:uppercase;letter-spacing:0.5pt;">Cierre definitivo del evento</div>
+        <img src="${FIRMA_DPA}" style="height:62px;width:auto;display:block;margin:6px auto 2px;">
+        <div style="font-size:11.5pt;font-weight:bold;color:${NAVY};white-space:nowrap;">${FIRMA_DPA_NOMBRE}</div>
+        <div style="font-size:9.5pt;color:${GRAPH};white-space:nowrap;">${FIRMA_DPA_CARGO}</div>
+        <div style="font-size:8.5pt;color:${GRAPH};white-space:nowrap;margin-top:3px;">Fecha de cierre: ${fmtDate(r.cierre_definitivo_fecha)}</div>
       </td></tr>
     </table>`;
   } else {
@@ -2173,6 +2158,8 @@ async function printRecordPdf(id){
 
   const container = document.getElementById('printReport');
   container.innerHTML = `<div style="font-family:Calibri,Arial,sans-serif;color:#222;">${body}</div>`;
+  const _imgs = [...container.querySelectorAll('img')];
+  await Promise.all(_imgs.map(img => img.complete ? Promise.resolve() : new Promise(res=>{ img.onload = img.onerror = ()=>res(); })));
   window.print();
   showToast('Reporte listo — elegí "Guardar como PDF" en el diálogo de impresión');
 }
