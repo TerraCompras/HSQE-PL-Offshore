@@ -1083,6 +1083,20 @@ function openRecordForm(id){
               <select id="f_tipo_lesion">${TIPO_LESION.map(c=>`<option value="${c}" ${r&&r.tipo_lesion===c?'selected':''}>${c||'Seleccionar...'}</option>`).join('')}</select>
             </div>
           </div>
+
+          <div class="section-title" style="margin-top:14px;padding-top:10px;border-top:1px dashed var(--line);">Consideraciones del evento</div>
+          <div class="field-row">
+            <div class="field"><label>¿La persona estaba de guardia?</label>${siNoNaSelect('f_q_guardia', r?r.q_guardia||'':'')}</div>
+            <div class="field"><label>¿El lugar estaba autorizado para realizar el trabajo?</label>${siNoNaSelect('f_q_lugar_autorizado', r?r.q_lugar_autorizado||'':'')}</div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>¿La persona estaba autorizada para realizar el trabajo?</label>${siNoNaSelect('f_q_persona_autorizada', r?r.q_persona_autorizada||'':'')}</div>
+            <div class="field"><label>¿La persona estaba bajo la influencia de alcohol?</label>${siNoNaSelect('f_q_alcohol', r?r.q_alcohol||'':'')}</div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>¿Está incapacitado para trabajar?</label>${siNoNaSelect('f_q_incapacitado', r?r.q_incapacitado||'':'')}</div>
+            <div class="field"><label>¿Se realizó asiento en el libro de navegación?</label>${siNoNaSelect('f_q_asiento_libro', r?r.q_asiento_libro||'':'')}</div>
+          </div>
         </div>
 
         <div id="block_causa_accion">
@@ -1366,6 +1380,11 @@ function toggleTipificacionCausaOtro(){
   const show = sel && sel.value === 'Otros';
   document.getElementById('field_tipificacion_causa_otro').style.display = show ? 'block' : 'none';
 }
+function siNoNaSelect(id, val){
+  const opts = ['','Sí','No','N/A'];
+  return `<select id="${id}">${opts.map(o=>`<option value="${o}" ${val===o?'selected':''}>${o||'Seleccionar...'}</option>`).join('')}</select>`;
+}
+
 function toggleLesionBlock(){
   const tipo = document.getElementById('f_tipo').value;
   const naturaleza = document.getElementById('f_naturaleza_cuasi') ? document.getElementById('f_naturaleza_cuasi').value : '';
@@ -1478,6 +1497,12 @@ async function saveRecord(){
     ambito_auditoria: (tipoSel === 'NC') ? getIf('f_ambito_auditoria') : '',
     parte_cuerpo: getIf('f_parte_cuerpo'),
     tipo_lesion: getIf('f_tipo_lesion'),
+    q_guardia: getIf('f_q_guardia'),
+    q_lugar_autorizado: getIf('f_q_lugar_autorizado'),
+    q_persona_autorizada: getIf('f_q_persona_autorizada'),
+    q_alcohol: getIf('f_q_alcohol'),
+    q_incapacitado: getIf('f_q_incapacitado'),
+    q_asiento_libro: getIf('f_q_asiento_libro'),
     lecciones_aprendidas: JSON.parse(JSON.stringify(modalLecciones)),
     severidad: TIPOS_CON_SEVERIDAD.includes(tipoSel) ? get('f_severidad') : '',
     estado: estadoSel,
@@ -1975,6 +2000,7 @@ async function exportRecordToWord(id){
       <span style="background:${tipoInfo.color};color:#fff;font-weight:bold;padding:3px 12px;border-radius:3px;font-size:10pt;">${tipoInfo.label}</span>
       &nbsp;&nbsp;<span style="font-family:'Courier New',monospace;font-size:10.5pt;color:${GRAPH};">${r.id}</span>
     </p>
+    ${r.titulo ? `<div style="font-family:Arial;font-size:15pt;font-weight:bold;color:${NAVY};margin:0 0 12px;">${r.titulo}</div>` : ''}
 
     <table style="width:100%;border-collapse:collapse;margin-bottom:14px;">
       ${metaRow({l:'Empresa', v:co?co.name:'—'}, {l:'Instalación / Área', v:(r.instalacion||'—')+(r.area?' · '+r.area:'')})}
@@ -1998,6 +2024,22 @@ async function exportRecordToWord(id){
   if(r.parte_cuerpo || r.tipo_lesion){
     body += `<h3 style="font-family:Arial;font-size:12pt;color:${NAVY};border-bottom:2px solid ${ORANGE};padding-bottom:3px;">Datos de la Lesión</h3>
       <p style="font-size:10.5pt;"><b>Parte del cuerpo afectada:</b> ${r.parte_cuerpo||'—'} &nbsp;·&nbsp; <b>Tipo de lesión:</b> ${r.tipo_lesion||'—'}</p>`;
+  }
+  const consideraciones = [
+    ['¿La persona estaba de guardia?', r.q_guardia],
+    ['¿El lugar estaba autorizado para realizar el trabajo?', r.q_lugar_autorizado],
+    ['¿La persona estaba autorizada para realizar el trabajo?', r.q_persona_autorizada],
+    ['¿La persona estaba bajo la influencia de alcohol?', r.q_alcohol],
+    ['¿Está incapacitado para trabajar?', r.q_incapacitado],
+    ['¿Se realizó asiento en el libro de navegación?', r.q_asiento_libro],
+  ];
+  if(consideraciones.some(c=>c[1])){
+    body += `<h3 style="font-family:Arial;font-size:12pt;color:${NAVY};border-bottom:2px solid ${ORANGE};padding-bottom:3px;">Consideraciones del Evento</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:10pt;margin-bottom:6px;">` +
+      consideraciones.map(c=>`<tr>
+        <td style="border:1px solid ${LINE};padding:5px 9px;">${c[0]}</td>
+        <td style="border:1px solid ${LINE};padding:5px 9px;text-align:center;font-weight:bold;width:60px;">${c[1]||'—'}</td>
+      </tr>`).join('') + `</table>`;
   }
   if((r.tipo==='AI' || r.tipo==='CI' || r.tipo==='INC') && r.categoria_evento){
     const tituloCat = r.tipo === 'INC' ? 'Tipificación' : 'Categorización';
