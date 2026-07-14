@@ -351,7 +351,7 @@ function applyTableFilters(list){
   const sv = document.getElementById('sevFilter')?.value||'';
   const ov = document.getElementById('overdueFilter')?.value||'';
   return list.filter(r=>{
-    if(q && !(`${r.descripcion} ${r.area} ${accionesResumen(r).responsable} ${r.reportado_por}`.toLowerCase().includes(q))) return false;
+    if(q && !(`${r.titulo} ${r.descripcion} ${r.area} ${accionesResumen(r).responsable} ${r.reportado_por}`.toLowerCase().includes(q))) return false;
     if(st && r.estado!==st) return false;
     if(sv && r.severidad!==sv) return false;
     if(ov==='overdue' && !isOverdue(r)) return false;
@@ -872,7 +872,7 @@ function renderTable(){
       <td><span class="type-tag" style="background:${TYPES[r.tipo].color}20;color:${TYPES[r.tipo].color}">${TYPES[r.tipo].label}</span></td>
       <td>${r.instalacion||'—'}</td>
       <td class="mono" style="font-size:12px;white-space:nowrap;">${fmtDate(r.fecha)}</td>
-      <td class="desc-cell" style="font-size:11.5px;">${(r.descripcion||'').slice(0,80)}${(r.descripcion||'').length>80?'…':''}</td>
+      <td class="desc-cell" style="font-size:11.5px;">${((r.titulo||r.descripcion)||'').slice(0,80)}${((r.titulo||r.descripcion)||'').length>80?'…':''}</td>
       <td><div class="status-cell" style="white-space:nowrap;"><span class="status-dot" style="background:${STATUS[r.estado]}"></span>${r.estado}</div></td>
       <td class="mono ${isOverdue(r)?'overdue':''}" style="font-size:12px;white-space:nowrap;">${isOverdue(r)?'⚠ ':''}${resumen.vencimiento?fmtDate(resumen.vencimiento):'—'}</td>
       <td>${resumen.responsable}</td>
@@ -885,7 +885,7 @@ function renderTable(){
     <table style="font-size:12.5px;">
       <thead><tr>
         <th>ID</th><th>Tipo</th><th>Instalación</th><th>Fecha</th>
-        <th>Descripción</th><th>Estado</th><th>Vencimiento</th><th>Responsable</th><th>Adj.</th><th></th>
+        <th>Título</th><th>Estado</th><th>Vencimiento</th><th>Responsable</th><th>Adj.</th><th></th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
@@ -987,6 +987,9 @@ function openRecordForm(id){
         </div>
 
         <div class="section-title">Descripción</div>
+        <div class="field"><label>Título del evento</label>
+          <input type="text" id="f_titulo" value="${r?r.titulo||'':''}" placeholder="Título breve que resuma el evento" maxlength="120">
+        </div>
         <div class="field"><label>Área / Departamento</label>
           <input type="text" id="f_area" value="${r?r.area||'':''}" placeholder="Ej: Cubierta, Sala de Máquinas, Puente">
         </div>
@@ -1457,6 +1460,7 @@ async function saveRecord(){
     instalacion: get('f_instalacion'),
     fecha: fechaSel,
     area: get('f_area'),
+    titulo: get('f_titulo'),
     descripcion: get('f_descripcion'),
     reportado_por: get('f_reportado'),
     clasificacion: getIf('f_clasif'),
@@ -1487,7 +1491,7 @@ async function saveRecord(){
     referencia_normativa: get('f_referencia'),
     adjuntos: JSON.parse(JSON.stringify(modalAttachments)),
   };
-  if(!rec.fecha || !rec.descripcion){ showToast('Completá al menos fecha y descripción'); return; }
+  if(!rec.fecha || !rec.titulo || !rec.descripcion){ showToast('Completá al menos fecha, título y descripción'); return; }
 
   if(editingId){
     const idx = DATA.records.findIndex(x=>x.id===editingId);
