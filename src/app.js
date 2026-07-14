@@ -1085,18 +1085,17 @@ function openRecordForm(id){
           </div>
 
           <div class="section-title" style="margin-top:14px;padding-top:10px;border-top:1px dashed var(--line);">Consideraciones del evento</div>
-          <div class="field-row">
-            <div class="field"><label>¿La persona estaba de guardia?</label>${siNoNaSelect('f_q_guardia', r?r.q_guardia||'':'')}</div>
-            <div class="field"><label>¿El lugar estaba autorizado para realizar el trabajo?</label>${siNoNaSelect('f_q_lugar_autorizado', r?r.q_lugar_autorizado||'':'')}</div>
-          </div>
-          <div class="field-row">
-            <div class="field"><label>¿La persona estaba autorizada para realizar el trabajo?</label>${siNoNaSelect('f_q_persona_autorizada', r?r.q_persona_autorizada||'':'')}</div>
-            <div class="field"><label>¿La persona estaba bajo la influencia de alcohol?</label>${siNoNaSelect('f_q_alcohol', r?r.q_alcohol||'':'')}</div>
-          </div>
-          <div class="field-row">
-            <div class="field"><label>¿Está incapacitado para trabajar?</label>${siNoNaSelect('f_q_incapacitado', r?r.q_incapacitado||'':'')}</div>
-            <div class="field"><label>¿Se realizó asiento en el libro de navegación?</label>${siNoNaSelect('f_q_asiento_libro', r?r.q_asiento_libro||'':'')}</div>
-          </div>
+          ${[
+            ['q_guardia','¿La persona estaba de guardia?'],
+            ['q_lugar_autorizado','¿El lugar estaba autorizado para realizar el trabajo?'],
+            ['q_persona_autorizada','¿La persona estaba autorizada para realizar el trabajo?'],
+            ['q_alcohol','¿La persona estaba bajo la influencia de alcohol?'],
+            ['q_incapacitado','¿Está incapacitado para trabajar?'],
+            ['q_asiento_libro','¿Se realizó asiento en el libro de navegación?'],
+          ].map(([k,q])=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:16px;padding:8px 2px;border-bottom:1px solid var(--line);">
+            <span style="font-size:12.5px;color:var(--navy);">${q}</span>
+            <div style="display:flex;gap:16px;flex-shrink:0;">${siNoNaRadios(k, r?r[k]||'':'')}</div>
+          </div>`).join('')}
         </div>
 
         <div id="block_causa_accion">
@@ -1380,9 +1379,14 @@ function toggleTipificacionCausaOtro(){
   const show = sel && sel.value === 'Otros';
   document.getElementById('field_tipificacion_causa_otro').style.display = show ? 'block' : 'none';
 }
-function siNoNaSelect(id, val){
-  const opts = ['','Sí','No','N/A'];
-  return `<select id="${id}">${opts.map(o=>`<option value="${o}" ${val===o?'selected':''}>${o||'Seleccionar...'}</option>`).join('')}</select>`;
+function siNoNaRadios(name, val){
+  return ['Sí','No','N/A'].map(o=>`<label style="display:inline-flex;align-items:center;gap:5px;margin:0;font-size:12.5px;font-weight:normal;text-transform:none;letter-spacing:0;color:var(--navy);cursor:pointer;">
+      <input type="radio" name="${name}" value="${o}" ${val===o?'checked':''} style="width:auto;margin:0;padding:0;"> ${o}
+    </label>`).join('');
+}
+function getRadioVal(name){
+  const el = document.querySelector(`input[name="${name}"]:checked`);
+  return el ? el.value : '';
 }
 
 function toggleLesionBlock(){
@@ -1497,12 +1501,12 @@ async function saveRecord(){
     ambito_auditoria: (tipoSel === 'NC') ? getIf('f_ambito_auditoria') : '',
     parte_cuerpo: getIf('f_parte_cuerpo'),
     tipo_lesion: getIf('f_tipo_lesion'),
-    q_guardia: getIf('f_q_guardia'),
-    q_lugar_autorizado: getIf('f_q_lugar_autorizado'),
-    q_persona_autorizada: getIf('f_q_persona_autorizada'),
-    q_alcohol: getIf('f_q_alcohol'),
-    q_incapacitado: getIf('f_q_incapacitado'),
-    q_asiento_libro: getIf('f_q_asiento_libro'),
+    q_guardia: getRadioVal('q_guardia'),
+    q_lugar_autorizado: getRadioVal('q_lugar_autorizado'),
+    q_persona_autorizada: getRadioVal('q_persona_autorizada'),
+    q_alcohol: getRadioVal('q_alcohol'),
+    q_incapacitado: getRadioVal('q_incapacitado'),
+    q_asiento_libro: getRadioVal('q_asiento_libro'),
     lecciones_aprendidas: JSON.parse(JSON.stringify(modalLecciones)),
     severidad: TIPOS_CON_SEVERIDAD.includes(tipoSel) ? get('f_severidad') : '',
     estado: estadoSel,
