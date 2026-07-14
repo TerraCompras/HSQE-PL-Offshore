@@ -74,16 +74,20 @@ let TIPIFICACION_CAUSA_RAIZ = ['','Falta de Procedimiento','Falta de Capacitaci�
   'Falta de Supervisión','Incumplimiento de Procedimiento','Factor Humano','Diseño o Ingeniería Inadecuados',
   'Mantenimiento Deficiente','Comunicación Deficiente','Otros'];
 
-const TIPO_LESION = ['','Escoriaciones','Heridas Punzantes','Heridas Cortantes','Heridas Contusas/Anfractuosas',
-  'Contusiones','Traumatismos Internos','Quemaduras Térmicas','Torceduras','Luxaciones','Fracturas Cerradas',
-  'Fractura Expuesta','Intoxicaciones','Cuerpo Extraño en Ojos','Amputaciones','Enucleación Ocular','Asfixia',
-  'Efectos de la Electricidad','Efecto de las Radiaciones','Quemaduras Químicas','Pérdida Auditiva','Infecciones',
-  'Traumatismo de Miembros','Distensión Muscular','Desgarro','Lesiones Inflamatorias Cutáneas','Esguince','Corte',
-  'Estrés','Moretón','Dermatitis','Otro'];
-const PARTE_CUERPO = ['','Ojos','Antebrazo','Codo','Oído','Mano y Muñeca','Boca (lengua, dientes, labios)',
-  'Dedos de la Mano','Región Craneana','Miembro Superior','Nariz','Cadera','Cara','Rodilla','Cabeza','Pierna',
-  'Cuello','Tobillo','Región Cervical','Miembro Inferior','Región Dorsal','Pie','Sistema Nervioso',
-  'Región Lumbosacra','Tórax','Testículos','Abdomen','Dedos de los Pies','Hombro','Brazo','Otro'];
+const TIPO_LESION = ['',
+  'Contusiones','Escoriaciones','Heridas cortantes','Heridas punzantes','Heridas contuso/anfractuosas',
+  'Torceduras','Esguinces','Luxaciones','Fracturas cerradas','Fracturas expuestas','Amputaciones','Desgarro',
+  'Distensión muscular','Efectos de compresión y aplastamiento','Quemaduras térmicas','Quemaduras químicas',
+  'Contacto directo con el fuego','Cuerpo extraño en ojos','Efectos de la electricidad','Intoxicaciones','Asfixia',
+  'Infecciones','Lesiones inflamatorias cutáneas','Traumatismos internos','Efectos por picadura',
+  'Efectos de calor e insolación','Efectos del frío','Otras lesiones no detalladas'];
+const PARTE_CUERPO = ['',
+  'Región craneana (cráneo, cuero cabelludo)','Ojos','Oído','Nariz','Boca (labios, dientes, lengua)','Cara',
+  'Cabeza, ubicaciones múltiples','Cuello','Región cervical','Región dorsal','Región lumbosacra','Tórax','Abdomen',
+  'Pelvis','Tronco, ubicaciones múltiples','Hombro','Brazo','Codo','Antebrazo','Muñeca','Mano (excepto los dedos)',
+  'Dedos de las manos','Miembro superior, ubicaciones múltiples','Cadera','Muslo','Rodilla','Pierna','Tobillo',
+  'Pie (excepto los dedos)','Dedos de los pies','Miembro inferior, ubicaciones múltiples','Piel',
+  'Ubicaciones múltiples','Otra'];
 
 let modalAttachments = [];
 let modalLecciones = [];
