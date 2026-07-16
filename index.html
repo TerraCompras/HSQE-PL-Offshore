@@ -118,11 +118,12 @@
         <option value="overdue">Solo vencidas</option>
       </select>
       <label style="font-size:11px;color:var(--graphite);display:flex;align-items:center;gap:4px;white-space:nowrap;">Desde
-        <input type="date" id="dateFrom" onchange="renderAll()" style="width:auto;">
+        <input type="date" id="dateFrom" onchange="renderAll()" onkeydown="if(event.key==='Enter')renderAll()" style="width:auto;">
       </label>
       <label style="font-size:11px;color:var(--graphite);display:flex;align-items:center;gap:4px;white-space:nowrap;">Hasta
-        <input type="date" id="dateTo" onchange="renderAll()" style="width:auto;">
+        <input type="date" id="dateTo" onchange="renderAll()" onkeydown="if(event.key==='Enter')renderAll()" style="width:auto;">
       </label>
+      <button class="btn" onclick="renderAll()">🔍 Aplicar fechas</button>
       <button class="btn secondary" onclick="clearFilters()">Limpiar filtros</button>
     </div>
 
