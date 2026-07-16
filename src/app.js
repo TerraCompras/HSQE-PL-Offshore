@@ -15,10 +15,21 @@ const TYPES = {
   CI:  {label:'Condición Insegura',  color:'#B07D0A'},
 };
 const STATUS = {
-  'Abierta':     '#C0392B',
-  'En Progreso': '#B07D0A',
-  'Cerrada':     '#1E7A4A',
+  'Abierto':    '#C0392B',
+  'En Proceso': '#B07D0A',
+  'Cerrado':    '#1E7A4A',
 };
+// Normaliza estados heredados (femenino) a los 3 estados oficiales (masculino).
+// Permite que los registros ya guardados en Supabase se muestren bien sin migración.
+function normalizeEstado(e){
+  const v = (e||'').trim();
+  if(v === 'Abierta') return 'Abierto';
+  if(v === 'En Progreso') return 'En Proceso';
+  if(v === 'Cerrada') return 'Cerrado';
+  if(STATUS[v]) return v;
+  return 'Abierto'; // valor por defecto seguro
+}
+function esCerrado(estado){ return normalizeEstado(estado) === 'Cerrado'; }
 const SEV_COLORS = {Baja:'#5B6671',Media:'#B07D0A',Alta:'#0A3A66',Crítica:'#C0392B'};
 const SEV_BG = {Baja:'#EEF0F1',Media:'#FBF1D6',Alta:'#FCE4D6',Crítica:'#F7D9D3'};
 const ACCION_ESTADOS = ['Abierto','En Proceso','Cerrado'];
@@ -95,9 +106,28 @@ let modalAccionesCorrectivas = [];
 let modalAccionesPreventivas = [];
 let presetCategoriaEvento = null;
 
-let DATA = { companies: [], records: [] };
+let DATA = { companies: [], records: [], visadores: [] };
 let currentTypeFilter = 'ALL';
 let currentSiteFilter = 'ALL';
+
+/* ============ USUARIO ACTUAL Y VISADO (Responsable HSQE/DPA) ============ */
+let CURRENT_USER = null; // email de la sesión activa (se setea en initApp)
+
+// Visador por defecto (se puede administrar desde "Gestionar usuarios / visadores").
+// Nota: los dominios de correo no admiten acentos ni ñ; se usa 'paranalogistica' (sin acento).
+const VISADOR_DEFAULT = { email: 'emartinez@paranalogistica.com.ar', nombre: 'Emmanuel Martinez', cargo: 'Gte. HSQE/DPA' };
+
+// Normaliza email para comparar: minúsculas + sin acentos (tolera 'logística' vs 'logistica').
+function normEmail(e){
+  return (e||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+}
+function getVisadores(){ return Array.isArray(DATA.visadores) ? DATA.visadores : []; }
+function getVisador(email){
+  const n = normEmail(email);
+  return getVisadores().find(v => normEmail(v.email) === n) || null;
+}
+function esVisador(email){ return !!getVisador(email); }
+function usuarioActualPuedeVisar(){ return esVisador(CURRENT_USER); }
 let editingId = null;
 let charts = {};
 
@@ -112,10 +142,16 @@ async function loadData(){
     if(regRes.error) throw regRes.error;
     if(catRes.error) throw catRes.error;
     if(cfgRes.error) throw cfgRes.error;
-    DATA.records   = (regRes.data || []).map(r => r.data);
+    DATA.records   = (regRes.data || []).map(r => {
+      const d = r.data || {};
+      d.estado = normalizeEstado(d.estado);
+      return d;
+    });
     DATA.catalogos = (catRes.data && catRes.data.data) ? catRes.data.data : {};
     DATA.companies = (cfgRes.data && cfgRes.data.data && Array.isArray(cfgRes.data.data.companies)) ? cfgRes.data.data.companies : [];
     DATA.scorecardTargets = (cfgRes.data && cfgRes.data.data && cfgRes.data.data.scorecardTargets) ? cfgRes.data.data.scorecardTargets : {};
+    DATA.visadores = (cfgRes.data && cfgRes.data.data && Array.isArray(cfgRes.data.data.visadores)) ? cfgRes.data.data.visadores : [];
+    if(DATA.visadores.length === 0){ DATA.visadores = [ {...VISADOR_DEFAULT} ]; await saveConfig(); }
     if(DATA.companies.length === 0){ seedDefaults(); await saveConfig(); }
   }catch(e){
     console.error('Error cargando datos HSQE:', e && e.message ? e.message : e);
@@ -175,7 +211,7 @@ async function saveCatalogos(){
 async function saveConfig(){
   try{
     const { error } = await supabase.from('hsqe_config')
-      .upsert({ id: 1, data: { companies: DATA.companies, scorecardTargets: DATA.scorecardTargets }, updated_at: new Date().toISOString() });
+      .upsert({ id: 1, data: { companies: DATA.companies, scorecardTargets: DATA.scorecardTargets, visadores: DATA.visadores }, updated_at: new Date().toISOString() });
     if(error) throw error;
     return true;
   }catch(e){
@@ -238,7 +274,7 @@ function generateRecordId(tipo, fechaStr){
 function todayISO(){ return new Date().toISOString().slice(0,10); }
 function fmtDate(d){ if(!d) return '—'; const p=d.split('-'); return p.length===3? `${p[2]}/${p[1]}/${p[0]}` : d; }
 function isOverdue(r){
-  if(['Cerrada'].includes(r.estado)) return false;
+  if(esCerrado(r.estado)) return false;
   if(TIPOS_SIN_CAUSA_ACCION.includes(r.tipo)){
     if(!r.fecha_vencimiento) return false;
     return r.fecha_vencimiento < todayISO();
@@ -246,7 +282,7 @@ function isOverdue(r){
   return todasAcciones(r).some(a => a.estado !== 'Cerrado' && a.vencimiento && a.vencimiento < todayISO());
 }
 function isDueSoon(r){
-  if(['Cerrada'].includes(r.estado)) return false;
+  if(esCerrado(r.estado)) return false;
   const hoy = todayISO();
   const limite = new Date(); limite.setDate(limite.getDate()+30);
   const limiteISO = limite.toISOString().slice(0,10);
@@ -366,7 +402,7 @@ function applyTableFilters(list){
 /* ============ RENDER: KPI ============ */
 function renderKPIs(){
   const list = filteredRecords(false);
-  const abiertas = list.filter(r=>!['Cerrada'].includes(r.estado)).length;
+  const abiertas = list.filter(r=>!esCerrado(r.estado)).length;
   const vencidas = list.filter(isOverdue).length;
   const porVencer = list.filter(isDueSoon).length;
 
@@ -877,11 +913,11 @@ function renderTable(){
       <td>${r.instalacion||'—'}</td>
       <td class="mono" style="font-size:12px;white-space:nowrap;">${fmtDate(r.fecha)}</td>
       <td class="desc-cell" style="font-size:11.5px;">${((r.titulo||r.descripcion)||'').slice(0,80)}${((r.titulo||r.descripcion)||'').length>80?'…':''}</td>
-      <td><div class="status-cell" style="white-space:nowrap;"><span class="status-dot" style="background:${STATUS[r.estado]}"></span>${r.estado}</div></td>
+      <td><div class="status-cell" style="white-space:nowrap;"><span class="status-dot" style="background:${STATUS[r.estado]}"></span>${r.estado}${r.visado ? ' <span title="Visado por Responsable HSQE/DPA" style="color:#1E7A4A;font-weight:bold;">✔</span>' : ''}</div></td>
       <td class="mono ${isOverdue(r)?'overdue':''}" style="font-size:12px;white-space:nowrap;">${isOverdue(r)?'⚠ ':''}${resumen.vencimiento?fmtDate(resumen.vencimiento):'—'}</td>
       <td>${resumen.responsable}</td>
       <td style="text-align:center">${nAdj>0 ? '📎 '+nAdj : '—'}</td>
-      <td style="text-align:center"><button class="btn secondary" style="padding:4px 8px;font-size:11px;" onclick="event.stopPropagation();exportRecordToWord('${r.id}')">📄</button></td>
+      <td style="text-align:center;white-space:nowrap;"><button class="btn" style="padding:4px 8px;font-size:11px;" title="Imprimir PDF" onclick="event.stopPropagation();printRecordPDF('${r.id}')">🖨</button> <button class="btn secondary" style="padding:4px 8px;font-size:11px;" title="Descargar Word" onclick="event.stopPropagation();exportRecordToWord('${r.id}')">📄</button></td>
     </tr>`;
   }).join('');
 
@@ -1200,14 +1236,18 @@ function openRecordForm(id){
           Nota: este prototipo registra el nombre y tamaño del archivo como referencia; no almacena el contenido del archivo.
         </div>
       </div>
-      <div class="modal-foot">
-        <div style="display:flex;gap:8px;">
-          ${r? `<button class="btn danger" onclick="deleteRecord('${r.id}')">Eliminar</button>` : ''}
-          ${r? `<button class="btn secondary" onclick="exportRecordToWord('${r.id}')">📄 Descargar Word</button>` : ''}
-        </div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn secondary" onclick="closeModal()">Cancelar</button>
-          <button class="btn" onclick="saveRecord()">${r?'Guardar cambios':'Crear registro'}</button>
+      <div class="modal-foot" style="flex-direction:column;align-items:stretch;gap:10px;">
+        ${r ? `<div style="width:100%;">${visadoBlockHtml(r)}</div>` : ''}
+        <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            ${r? `<button class="btn danger" onclick="deleteRecord('${r.id}')">Eliminar</button>` : ''}
+            ${r? `<button class="btn" onclick="printRecordPDF('${r.id}')">🖨 Imprimir PDF</button>` : ''}
+            ${r? `<button class="btn secondary" onclick="exportRecordToWord('${r.id}')">📄 Word</button>` : ''}
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn secondary" onclick="closeModal()">Cancelar</button>
+            <button class="btn" onclick="saveRecord()">${r?'Guardar cambios':'Crear registro'}</button>
+          </div>
         </div>
       </div>
     </div>`;
@@ -1280,7 +1320,7 @@ function accionesFromRecord(r, campo){
   // Compatibilidad con registros anteriores a la versión de acciones múltiples,
   // donde había una única "Acción correctiva / preventiva" de texto libre.
   if(r && campo === 'acciones_correctivas' && (r.accion_correctiva || '').trim()){
-    const estadoLegacy = r.estado === 'Cerrada' ? 'Cerrado' : (r.estado === 'En Progreso' ? 'En Proceso' : 'Abierto');
+    const estadoLegacy = esCerrado(r.estado) ? 'Cerrado' : (normalizeEstado(r.estado) === 'En Proceso' ? 'En Proceso' : 'Abierto');
     return [{ id: uid(), descripcion: r.accion_correctiva, responsable: r.responsable || '', vencimiento: r.fecha_vencimiento || '', estado: estadoLegacy }];
   }
   return [];
@@ -1305,11 +1345,11 @@ function updateAccionField(tipoAccion, i, field, value){
 function validateEstadoCierre(sel){
   const tipo = document.getElementById('f_tipo').value;
   if(TIPOS_SIN_CAUSA_ACCION.includes(tipo)) return;
-  if(sel.value !== 'Cerrada') return;
+  if(sel.value !== 'Cerrado') return;
   const pendientes = [...modalAccionesCorrectivas, ...modalAccionesPreventivas].filter(a => a.estado !== 'Cerrado');
   if(pendientes.length > 0){
     showToast('No se puede cerrar: hay acciones correctivas/preventivas sin cerrar');
-    sel.value = 'En Progreso';
+    sel.value = 'En Proceso';
   }
 }
 function renderAccionesBlock(tipoAccion){
@@ -1466,6 +1506,78 @@ function closeModal(){
   const m = document.getElementById('modalOverlay');
   if(m) m.remove();
 }
+
+/* ============ VISADO — RESPONSABLE HSQE / DPA ============ */
+// Bloque que se muestra en el pie del formulario de cada registro.
+function visadoBlockHtml(r){
+  const puede = usuarioActualPuedeVisar();
+  if(r && r.visado){
+    const quien = `${r.visado_por || '—'}${r.visado_cargo ? ' — ' + r.visado_cargo : ''}`;
+    return `<div id="visadoBlock" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#E1EFE4;border:1px solid #1E7A4A;border-radius:6px;padding:8px 12px;">
+      <span style="font-size:16px;color:#1E7A4A;">✔</span>
+      <div style="line-height:1.3;">
+        <div style="font-size:12.5px;font-weight:bold;color:#1E7A4A;">Visado por Responsable HSQE/DPA</div>
+        <div style="font-size:11.5px;color:#2b3a2f;">${quien} · ${fmtDate(r.visado_fecha)}</div>
+      </div>
+      ${puede ? `<button class="btn secondary" style="padding:4px 10px;font-size:11px;margin-left:auto;" onclick="toggleVisado('${r.id}')">Quitar visado</button>` : ''}
+    </div>`;
+  }
+  if(puede){
+    return `<div id="visadoBlock">
+      <button class="btn" style="background:#1E7A4A;border-color:#1E7A4A;" onclick="toggleVisado('${r.id}')">🖊 Visar como Responsable HSQE/DPA</button>
+    </div>`;
+  }
+  return `<div id="visadoBlock" style="font-size:11.5px;color:var(--graphite-light);font-style:italic;">Pendiente de visado por Responsable HSQE/DPA.</div>`;
+}
+
+// Firma manuscrita para los printables (PDF/Word). Devuelve '' si no está visado.
+function firmaVisadoHtml(r){
+  if(!r || !r.visado) return '';
+  const NAVY='#002247', GRAPH='#5B6671';
+  const nombre = r.visado_por || 'Emmanuel Martinez';
+  const cargo  = r.visado_cargo || 'Gte. HSQE/DPA';
+  return `
+    <table style="width:100%;margin-top:26px;border-collapse:collapse;">
+      <tr><td style="text-align:center;padding-top:6px;">
+        <div class="firma-manuscrita" style="font-family:'Great Vibes','Segoe Script','Bradley Hand',cursive;font-size:34pt;color:${NAVY};line-height:1;">${nombre}</div>
+        <div style="border-top:1px solid #555;width:280px;margin:2px auto 0;"></div>
+        <div style="font-size:8.5pt;color:${GRAPH};margin-top:5px;text-transform:uppercase;letter-spacing:0.6pt;">Visado por Responsable HSQE / DPA</div>
+        <div style="font-size:10.5pt;color:${NAVY};font-weight:bold;">${nombre} — ${cargo}</div>
+        <div style="font-size:8.5pt;color:${GRAPH};">Fecha de visado: ${fmtDate(r.visado_fecha)}</div>
+      </td></tr>
+    </table>`;
+}
+
+async function toggleVisado(id){
+  if(!usuarioActualPuedeVisar()){
+    showToast('Solo el Responsable HSQE/DPA autorizado puede visar');
+    return;
+  }
+  const r = DATA.records.find(x=>x.id===id);
+  if(!r){ showToast('No se encontró el registro'); return; }
+  const v = getVisador(CURRENT_USER);
+  if(r.visado){
+    if(!confirm('¿Quitar el visado de este reporte?')) return;
+    r.visado = false; r.visado_por=''; r.visado_cargo=''; r.visado_email=''; r.visado_fecha='';
+  } else {
+    r.visado = true;
+    r.visado_por   = v ? v.nombre : 'Responsable HSQE/DPA';
+    r.visado_cargo = v ? v.cargo  : '';
+    r.visado_email = CURRENT_USER;
+    r.visado_fecha = todayISO();
+  }
+  const ok = await upsertRegistro(r);
+  if(!ok) return;
+  const block = document.getElementById('visadoBlock');
+  if(block){
+    const tmp = document.createElement('div');
+    tmp.innerHTML = visadoBlockHtml(r);
+    block.replaceWith(tmp.firstElementChild);
+  }
+  renderAll();
+  showToast(r.visado ? 'Reporte visado por Responsable HSQE/DPA' : 'Visado retirado');
+}
+
 async function saveRecord(){
   const get = id => document.getElementById(id).value;
   const getIf = id => document.getElementById(id) ? document.getElementById(id).value : '';
@@ -1474,7 +1586,7 @@ async function saveRecord(){
   const tipoSinAcciones = TIPOS_SIN_CAUSA_ACCION.includes(tipoSel);
   const estadoSel = get('f_estado');
 
-  if(!tipoSinAcciones && estadoSel === 'Cerrada'){
+  if(!tipoSinAcciones && estadoSel === 'Cerrado'){
     const pendientes = [...modalAccionesCorrectivas, ...modalAccionesPreventivas].filter(a => a.estado !== 'Cerrado');
     if(pendientes.length > 0){
       showToast('No se puede cerrar el reporte: hay acciones correctivas/preventivas sin cerrar');
@@ -1529,6 +1641,19 @@ async function saveRecord(){
   if(!rec.fecha || !rec.titulo || !rec.descripcion){ showToast('Completá al menos fecha, título y descripción'); return; }
 
   if(editingId){
+    const prev = DATA.records.find(x=>x.id===editingId);
+    if(prev && prev.visado){
+      // Se conserva el visado existente. Nota de auditoría: si el contenido cambió,
+      // el visado sigue vigente; ver recomendación de invalidar visado tras edición.
+      rec.visado = prev.visado;
+      rec.visado_por = prev.visado_por;
+      rec.visado_cargo = prev.visado_cargo;
+      rec.visado_email = prev.visado_email;
+      rec.visado_fecha = prev.visado_fecha;
+    }
+  }
+
+  if(editingId){
     const idx = DATA.records.findIndex(x=>x.id===editingId);
     DATA.records[idx] = rec;
   } else {
@@ -1573,7 +1698,7 @@ function manageLeccionesAprendidas(rec){
       reportado_por: rec.reportado_por,
       clasificacion_origen: '',
       severidad: '',
-      estado: 'Abierta',
+      estado: 'Abierto',
       comunicar_a: '',
       medio_comunicacion: '',
       plazo_comunicacion: '',
@@ -1620,6 +1745,79 @@ function openCatalogManager(){
     </div>`;
   document.body.appendChild(overlay);
   renderCatalogManager();
+}
+
+/* ============ GESTIÓN DE USUARIOS / VISADORES (Responsables HSQE/DPA) ============ */
+function openVisadoresManager(){
+  const puede = usuarioActualPuedeVisar();
+  const overlay = document.createElement('div');
+  overlay.className='modal-overlay';
+  overlay.id='modalOverlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:640px;">
+      <div class="modal-head"><h2>Usuarios habilitados para visar (HSQE/DPA)</h2><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="modal-body">
+        <div style="font-size:12px;color:var(--graphite-light);margin-bottom:10px;">
+          Sólo los correos de esta lista pueden visar reportes como Responsable HSQE/DPA. La comparación ignora mayúsculas y acentos.
+          ${puede ? '' : '<br><b>Estás conectado con un usuario sin permiso de visado, por lo que esta lista es de sólo lectura.</b>'}
+        </div>
+        <div id="visadoresList"></div>
+        ${puede ? `
+        <div class="section-title">Agregar visador</div>
+        <div class="field-row-3">
+          <input type="email" id="newVisadorEmail" placeholder="correo@empresa.com.ar">
+          <input type="text" id="newVisadorNombre" placeholder="Nombre y apellido">
+          <input type="text" id="newVisadorCargo" placeholder="Cargo (ej: Gte. HSQE/DPA)">
+        </div>
+        <div style="text-align:right;margin-top:6px;"><button class="btn" onclick="addVisador()">+ Agregar visador</button></div>` : ''}
+      </div>
+      <div class="modal-foot"><div></div><button class="btn secondary" onclick="closeModal()">Cerrar</button></div>
+    </div>`;
+  document.body.appendChild(overlay);
+  renderVisadoresList();
+}
+function renderVisadoresList(){
+  const wrap = document.getElementById('visadoresList');
+  if(!wrap) return;
+  const puede = usuarioActualPuedeVisar();
+  const lista = getVisadores();
+  if(lista.length===0){ wrap.innerHTML = '<span style="font-size:12px;color:var(--graphite-light)">Sin visadores cargados.</span>'; return; }
+  wrap.innerHTML = `<table style="width:100%;font-size:12.5px;border-collapse:collapse;">
+    <thead><tr><th style="text-align:left;">Correo</th><th style="text-align:left;">Nombre</th><th style="text-align:left;">Cargo</th><th></th></tr></thead>
+    <tbody>${lista.map((v,i)=>`<tr>
+      <td class="mono" style="font-size:11.5px;">${v.email||'—'}${normEmail(v.email)===normEmail(CURRENT_USER)?' <span style="color:#1E7A4A;">(vos)</span>':''}</td>
+      <td>${v.nombre||'—'}</td>
+      <td>${v.cargo||'—'}</td>
+      <td style="text-align:right;">${puede?`<button class="btn secondary" style="padding:3px 8px;font-size:11px;color:var(--red)" onclick="removeVisador(${i})">✕</button>`:''}</td>
+    </tr>`).join('')}</tbody></table>`;
+}
+async function addVisador(){
+  if(!usuarioActualPuedeVisar()){ showToast('No tenés permiso para modificar la lista de visadores'); return; }
+  const email = (document.getElementById('newVisadorEmail').value||'').trim();
+  const nombre = (document.getElementById('newVisadorNombre').value||'').trim();
+  const cargo = (document.getElementById('newVisadorCargo').value||'').trim();
+  if(!email || !nombre){ showToast('Completá al menos correo y nombre'); return; }
+  if(esVisador(email)){ showToast('Ese correo ya está habilitado'); return; }
+  DATA.visadores.push({ email, nombre, cargo });
+  const ok = await saveConfig();
+  if(!ok) return;
+  renderVisadoresList();
+  document.getElementById('newVisadorEmail').value='';
+  document.getElementById('newVisadorNombre').value='';
+  document.getElementById('newVisadorCargo').value='';
+  showToast('Visador agregado');
+}
+async function removeVisador(i){
+  if(!usuarioActualPuedeVisar()){ showToast('No tenés permiso para modificar la lista de visadores'); return; }
+  const v = DATA.visadores[i];
+  if(!v) return;
+  if(getVisadores().length<=1){ showToast('Debe quedar al menos un visador habilitado'); return; }
+  if(!confirm(`¿Quitar a ${v.nombre||v.email} de los visadores habilitados?`)) return;
+  DATA.visadores.splice(i,1);
+  const ok = await saveConfig();
+  if(!ok) return;
+  renderVisadoresList();
+  showToast('Visador quitado');
 }
 const MESES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 function fmtMesAnio(ym){
@@ -1727,6 +1925,9 @@ function renderCatalogManager(){
   const body = document.getElementById('catalogManagerBody');
   const cat = DATA.catalogos;
   body.innerHTML =
+    `<div class="section-title">Usuarios / Visadores (Responsable HSQE/DPA)</div>
+     <div style="font-size:11px;color:var(--graphite-light);margin:-4px 0 8px;">Administrá qué usuarios pueden visar reportes como Responsable HSQE/DPA.</div>
+     <div style="margin-bottom:14px;"><button class="btn secondary" onclick="openVisadoresManager()">👤 Gestionar visadores</button></div>` +
     sitiosSectionHtml() +
     dotacionSectionHtml() +
     catalogSectionHtml('Personas (Responsable / Reportado por)',
@@ -1901,9 +2102,9 @@ function printCompanyReport(){
 
   sitiosAImprimir.forEach(sitio => {
     const recs = DATA.records.filter(r => r.instalacion === sitio);
-    const abiertas = recs.filter(r => !['Cerrada'].includes(r.estado));
+    const abiertas = recs.filter(r => !esCerrado(r.estado));
     const vencidas = recs.filter(isOverdue);
-    const cerradas = recs.filter(r => ['Cerrada'].includes(r.estado));
+    const cerradas = recs.filter(r => esCerrado(r.estado));
 
     html += `<div class="pr-company">
       <div style="font-family:'DM Mono';font-size:10px;color:var(--graphite-light);margin-bottom:4px;">INTEGRA · Módulo HSQE — Generado el ${fechaHora}</div>
@@ -1919,8 +2120,8 @@ function printCompanyReport(){
       html += `<div class="pr-empty">Sin registros cargados para este sitio.</div>`;
     } else {
       const sorted = [...recs].sort((a,b)=>{
-        const wA = !['Cerrada'].includes(a.estado) ? 0 : 1;
-        const wB = !['Cerrada'].includes(b.estado) ? 0 : 1;
+        const wA = !esCerrado(a.estado) ? 0 : 1;
+        const wB = !esCerrado(b.estado) ? 0 : 1;
         if(wA!==wB) return wA-wB;
         return (b.fecha||'').localeCompare(a.fecha||'');
       });
@@ -1972,9 +2173,10 @@ async function logoToDataURL(src){
   }
 }
 
-async function exportRecordToWord(id){
+// Compositor común del cuerpo del reporte (usado por Word y por PDF).
+async function composeRecordBody(id){
   const r = DATA.records.find(x=>x.id===id);
-  if(!r){ showToast('No se encontró el registro'); return; }
+  if(!r){ showToast('No se encontró el registro'); return null; }
   const co = DATA.companies.find(c=>c.id===r.empresa_id);
   const logo = await logoToDataURL(getCompanyLogo(r.empresa_id));
   const now = new Date();
@@ -2086,7 +2288,8 @@ async function exportRecordToWord(id){
       r.adjuntos.map(a=>`<p style="font-size:10.5pt;">📎 ${a.nombre} (${a.tamano})</p>`).join('');
   }
 
-  body += `
+  // Bloque "Respuesta del Responsable" (para completar a mano / firmar).
+  const respuestaBlock = `
     <table style="width:100%;border:2px solid ${NAVY};border-collapse:collapse;margin-top:20px;">
       <tr><td style="padding:14px;">
         <h3 style="font-family:Arial;font-size:12pt;color:${NAVY};margin-top:0;">Respuesta del Responsable</h3>
@@ -2101,11 +2304,18 @@ async function exportRecordToWord(id){
       </td></tr>
     </table>`;
 
+  return { r, co, logo, tipoInfo, body, respuestaBlock };
+}
+
+async function exportRecordToWord(id){
+  const doc = await composeRecordBody(id);
+  if(!doc) return;
+  const { r, body, respuestaBlock } = doc;
   const fullHtml = `<!DOCTYPE html><html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
     <head><meta charset="utf-8"><title>${r.id}</title>
     <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
     <style>body{font-family:Calibri, Arial, sans-serif;color:#222;}</style>
-    </head><body>${body}</body></html>`;
+    </head><body>${body}${respuestaBlock}${firmaVisadoHtml(r)}</body></html>`;
 
   const blob = new Blob(['\ufeff', fullHtml], {type: 'application/msword'});
   const url = URL.createObjectURL(blob);
@@ -2117,8 +2327,43 @@ async function exportRecordToWord(id){
   showToast('Documento Word generado');
 }
 
+// Printable en PDF, formato VERTICAL (A4 retrato). Abre una ventana lista para
+// "Guardar como PDF". Si el reporte está visado, incluye la firma manuscrita al pie.
+async function printRecordPDF(id){
+  const doc = await composeRecordBody(id);
+  if(!doc) return;
+  const { r, body, respuestaBlock } = doc;
+  const fullHtml = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${r.id}</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap');
+      @page { size: A4 portrait; margin: 15mm; }
+      html,body{ margin:0; padding:0; }
+      body{ font-family: Calibri, Arial, sans-serif; color:#222; font-size:11pt; }
+      table{ page-break-inside: avoid; }
+      h3{ page-break-after: avoid; }
+      .firma-manuscrita{ page-break-inside: avoid; }
+      @media print { .no-print{ display:none; } }
+    </style>
+    </head><body>
+      ${body}
+      ${respuestaBlock}
+      ${firmaVisadoHtml(r)}
+      <script>
+        function __go(){ try{ window.focus(); window.print(); }catch(e){} }
+        if (document.fonts && document.fonts.ready) { document.fonts.ready.then(function(){ setTimeout(__go, 200); }); }
+        else { setTimeout(__go, 500); }
+      <\/script>
+    </body></html>`;
+  const w = window.open('', '_blank');
+  if(!w){ showToast('Habilitá las ventanas emergentes para generar el PDF'); return; }
+  w.document.open();
+  w.document.write(fullHtml);
+  w.document.close();
+  showToast('Generando PDF vertical — elegí "Guardar como PDF" en el diálogo de impresión');
+}
+
 /* ============ INIT ============ */
-Object.assign(window, { addAccion, addAttachmentFile, addAttachmentManual, addCatalogItem, addDotacionMes, addLeccion, addVessel, clearFilters, closeModal, deleteRecord, exportData, exportRecordToWord, openAttachment, openCatalogManager, openRecordForm, printChartsReport, printCompanyReport, removeAccion, removeAttachment, removeCatalogItem, removeDotacionMes, removeLeccion, removeVessel, renderAuditNcKpi, renderOcimfKpi, renderScoreCard, setScoreCardYear, setScoreCardTarget, renderTable, saveRecord, setCompanyLogo, setSiteFilter, setTypeFilter, toggleCategoriaOtro, toggleTipificacionCausaOtro, updateAccionField, updateVesselOptions, validateEstadoCierre, refreshData, logoutHsqe });
+Object.assign(window, { addAccion, addAttachmentFile, addAttachmentManual, addCatalogItem, addDotacionMes, addLeccion, addVessel, addVisador, clearFilters, closeModal, deleteRecord, exportData, exportRecordToWord, printRecordPDF, openAttachment, openCatalogManager, openRecordForm, openVisadoresManager, printChartsReport, printCompanyReport, removeAccion, removeAttachment, removeCatalogItem, removeDotacionMes, removeLeccion, removeVessel, removeVisador, renderAuditNcKpi, renderOcimfKpi, renderScoreCard, setScoreCardYear, setScoreCardTarget, renderTable, saveRecord, setCompanyLogo, setSiteFilter, setTypeFilter, toggleCategoriaOtro, toggleTipificacionCausaOtro, toggleVisado, updateAccionField, updateVesselOptions, validateEstadoCierre, refreshData, logoutHsqe });
 
 async function logoutHsqe(){
   await supabase.auth.signOut();
@@ -2126,6 +2371,7 @@ async function logoutHsqe(){
 }
 
 export function initApp(session){
+  CURRENT_USER = (session && session.user) ? session.user.email : null;
   const emailEl = document.getElementById('sessionEmail');
   if(emailEl && session && session.user) emailEl.textContent = session.user.email;
   document.querySelector('.app').style.display = 'flex';
