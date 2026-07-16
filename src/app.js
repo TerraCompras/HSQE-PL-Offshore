@@ -1,5 +1,7 @@
 import Chart from 'chart.js/auto';
 import { supabase } from './lib/supabase.js';
+import html2canvas from 'html2canvas';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 
 /* ============ CONFIG ============ */
@@ -1293,7 +1295,7 @@ function openRecordForm(id){
         <div class="field-row">
           <div class="field" style="flex:1">
             <label>Adjuntar archivo</label>
-            <input type="file" id="f_adjunto_file" onchange="addAttachmentFile(this)">
+            <input type="file" id="f_adjunto_file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onchange="addAttachmentFile(this)">
           </div>
           <div class="field" style="flex:1">
             <label>O referenciar documento físico/externo</label>
@@ -1562,11 +1564,20 @@ async function addAttachmentFile(input){
     input.value = '';
     return;
   }
+  // Solo se permiten PDF, JPG y PNG
+  const ext = (f.name.split('.').pop() || '').toLowerCase();
+  const CONTENT_TYPES = { pdf:'application/pdf', jpg:'image/jpeg', jpeg:'image/jpeg', png:'image/png' };
+  const contentType = CONTENT_TYPES[ext];
+  if(!contentType){
+    showToast('Formato no permitido. Solo se aceptan archivos PDF, JPG o PNG.');
+    input.value = '';
+    return;
+  }
   showToast('Subiendo adjunto...');
   const safe = f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
   const path = `${new Date().getFullYear()}/${uid()}_${safe}`;
   try{
-    const { error } = await supabase.storage.from('hsqe-adjuntos-ploffshore').upload(path, f);
+    const { error } = await supabase.storage.from('hsqe-adjuntos-ploffshore').upload(path, f, { contentType, upsert: false });
     if(error) throw error;
     modalAttachments.push({nombre: f.name, tamano: humanFileSize(f.size), fecha: todayISO(), path});
     showToast('Adjunto subido');
@@ -1574,6 +1585,7 @@ async function addAttachmentFile(input){
     const msg = (e && e.message) ? e.message : String(e);
     console.error('Error subiendo adjunto:', msg);
     if(/size|large|exceed|payload|413/i.test(msg)) showToast('El servidor rechazó el archivo por superar el límite de 2 MB');
+    else if(/mime|type|not allowed|format/i.test(msg)) showToast('El servidor rechazó el archivo: solo se permiten PDF, JPG o PNG');
     else showToast('Error al subir el adjunto');
   }
   input.value = '';
@@ -2329,34 +2341,18 @@ async function logoToDataURL(src){
 
 // Descarga un adjunto de Storage (vía URL firmada) y lo devuelve como data URL + mime,
 // para poder incrustarlo dentro del PDF como anexo.
-async function attachmentToDataURL(path, nombre){
+// Descarga un adjunto de Storage (vía URL firmada) y lo devuelve como bytes + tipo,
+// para incrustarlo/fusionarlo en el PDF final con pdf-lib.
+async function attachmentToBytes(path, nombre){
   if(!path) return null;
-  try{
-    const { data, error } = await supabase.storage.from('hsqe-adjuntos-ploffshore').createSignedUrl(path, 300);
-    if(error || !data || !data.signedUrl) throw (error || new Error('sin URL firmada'));
-    const resp = await fetch(data.signedUrl);
-    if(!resp.ok) throw new Error('HTTP '+resp.status);
-    const blob = await resp.blob();
-    let dataUrl = await new Promise((resolve, reject)=>{
-      const fr = new FileReader();
-      fr.onload = ()=>resolve(fr.result);
-      fr.onerror = reject;
-      fr.readAsDataURL(blob);
-    });
-    let mime = blob.type || '';
-    // Si Supabase devolvió un tipo genérico o vacío, lo deducimos de la extensión
-    // y reescribimos el prefijo del data URL (si no, un <img> no renderiza la foto).
-    const ext = (nombre || path || '').split('.').pop().toLowerCase();
-    const EXT_MIME = { jpg:'image/jpeg', jpeg:'image/jpeg', png:'image/png', gif:'image/gif', webp:'image/webp', bmp:'image/bmp', tif:'image/tiff', tiff:'image/tiff', heic:'image/heic', pdf:'application/pdf' };
-    if((!mime || mime === 'application/octet-stream' || mime === 'binary/octet-stream') && EXT_MIME[ext]){
-      mime = EXT_MIME[ext];
-      dataUrl = dataUrl.replace(/^data:[^;]*;/, `data:${mime};`);
-    }
-    return { dataUrl, mime };
-  }catch(e){
-    console.warn('No se pudo descargar el anexo para el PDF:', path, e);
-    return null;
-  }
+  const { data, error } = await supabase.storage.from('hsqe-adjuntos-ploffshore').createSignedUrl(path, 300);
+  if(error || !data || !data.signedUrl) throw (error || new Error('sin URL firmada'));
+  const resp = await fetch(data.signedUrl);
+  if(!resp.ok) throw new Error('HTTP ' + resp.status);
+  const bytes = new Uint8Array(await resp.arrayBuffer());
+  const mime = resp.headers.get('content-type') || '';
+  const ext = (nombre || path || '').split('.').pop().toLowerCase();
+  return { bytes, mime, ext };
 }
 
 // Compositor común del cuerpo del reporte (usado por Word y por PDF).
@@ -2495,100 +2491,154 @@ async function composeRecordBody(id){
     body += `<h3 style="font-family:Arial;font-size:12pt;color:${NAVY};border-bottom:2px solid ${ORANGE};padding-bottom:3px;">Lecciones Aprendidas</h3>` +
       r.lecciones_aprendidas.map(l=>`<p style="font-size:10.5pt;">💡 ${l.texto}${l.la_id?` <span style="font-family:'Courier New',monospace;font-size:9pt;color:${GRAPH};">(${l.la_id})</span>`:''}</p>`).join('');
   }
-  let anexos = '';
   if(Array.isArray(r.adjuntos) && r.adjuntos.length>0){
-    // Listado resumen dentro del reporte
+    // Listado resumen dentro del reporte (los archivos se incrustan luego como páginas de anexo)
     body += `<h3 style="font-family:Arial;font-size:12pt;color:${NAVY};border-bottom:2px solid ${ORANGE};padding-bottom:3px;">Anexos al reporte</h3>` +
       r.adjuntos.map((a,i)=>`<p style="font-size:10.5pt;margin:0 0 3px;">${i+1}. 📎 ${a.nombre}${a.tamano&&a.tamano!=='—'?` <span style="color:${GRAPH};">(${a.tamano})</span>`:''}${a.fecha?` <span style="color:${GRAPH};font-size:9pt;">· ${fmtDate(a.fecha)}</span>`:''}${!a.path?` <span style="color:${GRAPH};font-size:9pt;">· referencia física/externa</span>`:''}</p>`).join('');
-
-    // Anexos incrustados: cada uno en una página nueva
-    const anexoHead = (i,a,nota) => `<div style="border-bottom:2px solid ${NAVY};margin-bottom:10px;padding-bottom:6px;">
-        <div style="font-size:8.5pt;color:${GRAPH};text-transform:uppercase;letter-spacing:0.6pt;">Anexo ${i+1}</div>
-        <div style="font-size:13pt;color:${NAVY};font-weight:bold;">${a.nombre}</div>
-        ${nota?`<div style="font-size:9pt;color:${GRAPH};">${nota}</div>`:''}
-      </div>`;
-    for(let i=0; i<r.adjuntos.length; i++){
-      const a = r.adjuntos[i];
-      if(!a.path) continue; // referencias físicas/externas: no hay archivo para incrustar
-      const file = await attachmentToDataURL(a.path, a.nombre);
-      if(!file){
-        anexos += `<div class="anexo-page">${anexoHead(i,a,'No se pudo recuperar el archivo desde el sistema al momento de imprimir.')}</div>`;
-        continue;
-      }
-      const ext = (a.nombre||'').split('.').pop().toLowerCase();
-      const esImagen = (file.mime||'').startsWith('image/') || ['jpg','jpeg','png','gif','webp','bmp'].includes(ext);
-      if(esImagen){
-        anexos += `<div class="anexo-page">${anexoHead(i,a,'')}
-          <img src="${file.dataUrl}" style="max-width:100%;max-height:235mm;display:block;margin:0 auto;">
-        </div>`;
-      } else if((file.mime||'').indexOf('pdf') !== -1 || ext === 'pdf'){
-        anexos += `<div class="anexo-page">${anexoHead(i,a,'Anexo en formato PDF. No puede incrustarse dentro de la impresión; el archivo permanece disponible en el sistema.')}</div>`;
-      } else {
-        anexos += `<div class="anexo-page">${anexoHead(i,a,'Anexo en formato no visualizable ('+(file.mime||'desconocido')+'). El archivo permanece disponible en el sistema.')}</div>`;
-      }
-    }
   }
 
-  return { r, co, logo, tipoInfo, body, anexos };
+  return { r, co, logo, tipoInfo, body };
 }
 
 // Printable en PDF, formato VERTICAL (A4 retrato). Imprime desde un iframe oculto
 // (sin abrir una pestaña en blanco) y espera a que carguen la fuente y las imágenes
 // antes de disparar la impresión. Si el reporte está visado, incluye la firma al pie.
+let _firmaFontLoaded = false;
+async function ensureFirmaFont(){
+  if(_firmaFontLoaded) return;
+  try{
+    if(!document.getElementById('greatVibesLink')){
+      const l = document.createElement('link');
+      l.id = 'greatVibesLink'; l.rel = 'stylesheet';
+      l.href = 'https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap';
+      document.head.appendChild(l);
+    }
+    if(document.fonts && document.fonts.load){
+      await document.fonts.load('40px "Great Vibes"');
+      await document.fonts.ready;
+    }
+  }catch(e){ /* sin conexión: cae a cursiva del sistema */ }
+  _firmaFontLoaded = true;
+}
+
+// Texto seguro para las fuentes estándar de pdf-lib (WinAnsi): quita emojis/símbolos raros.
+function pdfSafe(s){ return (s||'').replace(/[^\x00-\xFF]/g, ''); }
+function drawAnexoHeader(page, font, num, nombre, nota){
+  const { width, height } = page.getSize();
+  const navy = rgb(0, 0.13, 0.28), gray = rgb(0.36, 0.4, 0.44);
+  page.drawText('ANEXO ' + num, { x:36, y:height-48, size:9, font, color:gray });
+  page.drawText(pdfSafe(nombre).slice(0,80), { x:36, y:height-66, size:13, font, color:navy });
+  page.drawLine({ start:{x:36,y:height-74}, end:{x:width-36,y:height-74}, thickness:1.5, color:navy });
+  if(nota) page.drawText(pdfSafe(nota).slice(0,110), { x:36, y:height-90, size:9, font, color:gray });
+}
+
+// Convierte una franja vertical de un canvas a bytes PNG (para pdf-lib).
+function canvasRegionToPngBytes(srcCanvas, sy, sh){
+  const c = document.createElement('canvas');
+  c.width = srcCanvas.width; c.height = sh;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height);
+  ctx.drawImage(srcCanvas, 0, sy, srcCanvas.width, sh, 0, 0, srcCanvas.width, sh);
+  const b64 = c.toDataURL('image/png').split(',')[1];
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for(let i=0; i<bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+// Genera un PDF real (A4 vertical), incrusta las imágenes como páginas y FUSIONA
+// los PDF adjuntos (sus páginas se copian tal cual), y lo descarga.
 async function printRecordPDF(id){
-  const rec = DATA.records.find(x=>x.id===id);
-  if(rec && Array.isArray(rec.adjuntos) && rec.adjuntos.some(a=>a.path)){
-    showToast('Preparando PDF y anexos...');
-  }
   const doc = await composeRecordBody(id);
   if(!doc) return;
-  const { r, body, anexos } = doc;
-  const fullHtml = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${r.id}</title>
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap');
-      @page { size: A4 portrait; margin: 15mm; }
-      html,body{ margin:0; padding:0; }
-      body{ font-family: Calibri, Arial, sans-serif; color:#222; font-size:11pt; }
-      table{ page-break-inside: avoid; }
-      h3{ page-break-after: avoid; }
-      .firma-manuscrita{ page-break-inside: avoid; }
-      .anexo-page{ page-break-before: always; }
-    </style>
-    </head><body>
-      ${body}
-      ${firmaVisadoHtml(r)}
-      ${anexos || ''}
-      <script>
-        (function(){
-          function imgsReady(){
-            var imgs = Array.prototype.slice.call(document.images || []);
-            var pend = imgs.filter(function(i){ return !(i.complete && i.naturalWidth > 0); });
-            if(pend.length === 0) return Promise.resolve();
-            return Promise.all(pend.map(function(i){ return new Promise(function(res){ i.onload = res; i.onerror = res; }); }));
-          }
-          function go(){ imgsReady().then(function(){ setTimeout(function(){ window.focus(); window.print(); }, 120); }); }
-          window.onafterprint = function(){ try{ parent.__cleanupPdfFrame && parent.__cleanupPdfFrame(); }catch(e){} };
-          if (document.fonts && document.fonts.ready) { document.fonts.ready.then(go); } else { setTimeout(go, 300); }
-        })();
-      <\/script>
-    </body></html>`;
+  const { r, body } = doc;
+  let holder = null;
+  try{
+    showToast('Generando PDF...');
+    await ensureFirmaFont();
 
-  const old = document.getElementById('pdfPrintFrame');
-  if(old) old.remove();
-  const iframe = document.createElement('iframe');
-  iframe.id = 'pdfPrintFrame';
-  iframe.setAttribute('aria-hidden', 'true');
-  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;';
-  document.body.appendChild(iframe);
-  window.__cleanupPdfFrame = function(){
-    const f = document.getElementById('pdfPrintFrame');
-    if(f) setTimeout(function(){ f.remove(); }, 300);
-  };
-  const idoc = iframe.contentWindow.document;
-  idoc.open();
-  idoc.write(fullHtml);
-  idoc.close();
-  showToast('Generando PDF vertical — elegí "Guardar como PDF" en el diálogo de impresión');
+    const A4 = [595.28, 841.89];
+    const M = 36;
+    const contentW = A4[0] - M*2;   // 523.28 pt
+    const contentH = A4[1] - M*2;   // 769.89 pt
+    const HOLDER_W = 760;           // ancho de render en px
+
+    // 1) Render del reporte (mismo HTML/estilos que en pantalla) a un canvas
+    holder = document.createElement('div');
+    holder.style.cssText = `position:fixed;left:-99999px;top:0;width:${HOLDER_W}px;background:#ffffff;color:#222;font-family:Calibri,Arial,sans-serif;font-size:11pt;padding:0;`;
+    holder.innerHTML = `${body}${firmaVisadoHtml(r)}`;
+    document.body.appendChild(holder);
+
+    const canvas = await html2canvas(holder, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+    holder.remove(); holder = null;
+
+    // 2) Documento final: se corta el canvas en páginas A4
+    const outDoc = await PDFDocument.create();
+    const helv = await outDoc.embedFont(StandardFonts.Helvetica);
+    const cw = canvas.width;
+    const pageSlicePx = Math.max(1, Math.floor(contentH * cw / contentW));
+    let sy = 0;
+    while(sy < canvas.height){
+      const sh = Math.min(pageSlicePx, canvas.height - sy);
+      const png = canvasRegionToPngBytes(canvas, sy, sh);
+      const img = await outDoc.embedPng(png);
+      const hPt = sh * (contentW / cw);
+      const pg = outDoc.addPage(A4);
+      pg.drawImage(img, { x: M, y: A4[1] - M - hPt, width: contentW, height: hPt });
+      sy += sh;
+    }
+
+    // 3) Fusionar anexos
+    const adj = (r.adjuntos || []).filter(a => a.path);
+    if(adj.length){
+      showToast('Incrustando anexos...');
+      for(let i=0; i<adj.length; i++){
+        const a = adj[i];
+        let file = null;
+        try{ file = await attachmentToBytes(a.path, a.nombre); }catch(e){ file = null; }
+        if(!file){
+          drawAnexoHeader(outDoc.addPage(A4), helv, i+1, a.nombre, 'No se pudo recuperar el archivo desde el sistema.');
+          continue;
+        }
+        const esPdf = file.ext === 'pdf' || (file.mime||'').indexOf('pdf') !== -1;
+        const esPng = file.ext === 'png' || (file.mime||'').indexOf('png') !== -1;
+        const esJpg = ['jpg','jpeg'].includes(file.ext) || (file.mime||'').indexOf('jpeg') !== -1;
+        try{
+          if(esPdf){
+            const src = await PDFDocument.load(file.bytes, { ignoreEncryption: true });
+            const pages = await outDoc.copyPages(src, src.getPageIndices());
+            pages.forEach(p => outDoc.addPage(p));
+          } else if(esPng || esJpg){
+            const img = esPng ? await outDoc.embedPng(file.bytes) : await outDoc.embedJpg(file.bytes);
+            const pg = outDoc.addPage(A4);
+            drawAnexoHeader(pg, helv, i+1, a.nombre, '');
+            const top = 780, maxW = A4[0] - M*2, maxH = top - M;
+            const s = Math.min(maxW / img.width, maxH / img.height, 1);
+            const w = img.width * s, h = img.height * s;
+            pg.drawImage(img, { x:(A4[0]-w)/2, y:(top - h), width:w, height:h });
+          } else {
+            drawAnexoHeader(outDoc.addPage(A4), helv, i+1, a.nombre, 'Formato no soportado como anexo (solo PDF, JPG o PNG).');
+          }
+        }catch(e){
+          drawAnexoHeader(outDoc.addPage(A4), helv, i+1, a.nombre, 'No se pudo incrustar el anexo (' + ((e&&e.message)||'error') + ').');
+        }
+      }
+    }
+
+    // 4) Descargar
+    const outBytes = await outDoc.save();
+    const blob = new Blob([outBytes], { type:'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `${r.id}_${r.tipo}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('PDF generado' + (adj.length ? ' con anexos' : ''));
+  }catch(e){
+    console.error('Error generando PDF:', e);
+    showToast('Error al generar el PDF: ' + ((e && e.message) || e));
+    if(holder) holder.remove();
+  }
 }
 
 /* ============ INIT ============ */
