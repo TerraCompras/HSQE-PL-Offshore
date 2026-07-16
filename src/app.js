@@ -2329,20 +2329,30 @@ async function logoToDataURL(src){
 
 // Descarga un adjunto de Storage (vía URL firmada) y lo devuelve como data URL + mime,
 // para poder incrustarlo dentro del PDF como anexo.
-async function attachmentToDataURL(path){
+async function attachmentToDataURL(path, nombre){
   if(!path) return null;
   try{
     const { data, error } = await supabase.storage.from('hsqe-adjuntos-ploffshore').createSignedUrl(path, 300);
     if(error || !data || !data.signedUrl) throw (error || new Error('sin URL firmada'));
     const resp = await fetch(data.signedUrl);
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
     const blob = await resp.blob();
-    const dataUrl = await new Promise((resolve, reject)=>{
+    let dataUrl = await new Promise((resolve, reject)=>{
       const fr = new FileReader();
       fr.onload = ()=>resolve(fr.result);
       fr.onerror = reject;
       fr.readAsDataURL(blob);
     });
-    return { dataUrl, mime: blob.type || '' };
+    let mime = blob.type || '';
+    // Si Supabase devolvió un tipo genérico o vacío, lo deducimos de la extensión
+    // y reescribimos el prefijo del data URL (si no, un <img> no renderiza la foto).
+    const ext = (nombre || path || '').split('.').pop().toLowerCase();
+    const EXT_MIME = { jpg:'image/jpeg', jpeg:'image/jpeg', png:'image/png', gif:'image/gif', webp:'image/webp', bmp:'image/bmp', tif:'image/tiff', tiff:'image/tiff', heic:'image/heic', pdf:'application/pdf' };
+    if((!mime || mime === 'application/octet-stream' || mime === 'binary/octet-stream') && EXT_MIME[ext]){
+      mime = EXT_MIME[ext];
+      dataUrl = dataUrl.replace(/^data:[^;]*;/, `data:${mime};`);
+    }
+    return { dataUrl, mime };
   }catch(e){
     console.warn('No se pudo descargar el anexo para el PDF:', path, e);
     return null;
@@ -2500,16 +2510,18 @@ async function composeRecordBody(id){
     for(let i=0; i<r.adjuntos.length; i++){
       const a = r.adjuntos[i];
       if(!a.path) continue; // referencias físicas/externas: no hay archivo para incrustar
-      const file = await attachmentToDataURL(a.path);
+      const file = await attachmentToDataURL(a.path, a.nombre);
       if(!file){
         anexos += `<div class="anexo-page">${anexoHead(i,a,'No se pudo recuperar el archivo desde el sistema al momento de imprimir.')}</div>`;
         continue;
       }
-      if((file.mime||'').startsWith('image/')){
+      const ext = (a.nombre||'').split('.').pop().toLowerCase();
+      const esImagen = (file.mime||'').startsWith('image/') || ['jpg','jpeg','png','gif','webp','bmp'].includes(ext);
+      if(esImagen){
         anexos += `<div class="anexo-page">${anexoHead(i,a,'')}
           <img src="${file.dataUrl}" style="max-width:100%;max-height:235mm;display:block;margin:0 auto;">
         </div>`;
-      } else if((file.mime||'').indexOf('pdf') !== -1){
+      } else if((file.mime||'').indexOf('pdf') !== -1 || ext === 'pdf'){
         anexos += `<div class="anexo-page">${anexoHead(i,a,'Anexo en formato PDF. No puede incrustarse dentro de la impresión; el archivo permanece disponible en el sistema.')}</div>`;
       } else {
         anexos += `<div class="anexo-page">${anexoHead(i,a,'Anexo en formato no visualizable ('+(file.mime||'desconocido')+'). El archivo permanece disponible en el sistema.')}</div>`;
