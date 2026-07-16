@@ -405,7 +405,9 @@ function clearFilters(){
   document.getElementById('statusFilter').value='';
   document.getElementById('sevFilter').value='';
   document.getElementById('overdueFilter').value='';
-  renderTable();
+  const df = document.getElementById('dateFrom'); if(df) df.value='';
+  const dt = document.getElementById('dateTo'); if(dt) dt.value='';
+  renderAll();
 }
 
 /* ============ FILTERING ============ */
@@ -413,6 +415,19 @@ function filteredRecords(bySiteOnly){
   let r = DATA.records.filter(x => currentSiteFilter==='ALL' || x.instalacion===currentSiteFilter);
   if(!bySiteOnly && currentTypeFilter!=='ALL') r = r.filter(x=>x.tipo===currentTypeFilter);
   return r;
+}
+// Filtro por rango de fechas (Desde/Hasta). Afecta KPIs, gráficos y tabla del panel.
+function applyDateFilter(list){
+  const from = document.getElementById('dateFrom')?.value || '';
+  const to   = document.getElementById('dateTo')?.value || '';
+  if(!from && !to) return list;
+  return list.filter(r=>{
+    const f = r.fecha || '';
+    if(!f) return false;
+    if(from && f < from) return false;
+    if(to && f > to) return false;
+    return true;
+  });
 }
 function applyTableFilters(list){
   const q = (document.getElementById('searchBox')?.value||'').toLowerCase();
@@ -430,7 +445,7 @@ function applyTableFilters(list){
 
 /* ============ RENDER: KPI ============ */
 function renderKPIs(){
-  const list = filteredRecords(false);
+  const list = applyDateFilter(filteredRecords(false));
   const abiertas = list.filter(r=>!esCerrado(r.estado)).length;
   const vencidas = list.filter(isOverdue).length;
   const porVencer = list.filter(isDueSoon).length;
@@ -842,7 +857,7 @@ function wrapChartLabel(label, maxChars=16){
 }
 
 function renderCharts(){
-  const list = filteredRecords(false);
+  const list = applyDateFilter(filteredRecords(false));
   Object.values(charts).forEach(c=>c && c.destroy());
   charts = {};
 
@@ -906,7 +921,7 @@ function renderCharts(){
 
 /* ============ RENDER: TABLE ============ */
 function renderTable(){
-  let list = filteredRecords(false);
+  let list = applyDateFilter(filteredRecords(false));
   list = applyTableFilters(list);
   list.sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||''));
 
