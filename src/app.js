@@ -2642,13 +2642,22 @@ async function printRecordPDF(id){
     iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
     iframe.src = url;
     document.body.appendChild(iframe);
+    // El navegador usa el título de la página como nombre por defecto al "Guardar como PDF".
+    // Lo cambiamos temporalmente al nombre del reporte y lo restauramos al cerrar el diálogo.
+    const prevTitle = document.title;
+    const restoreTitle = () => { document.title = prevTitle; };
     iframe.onload = () => {
       setTimeout(() => {
         try{
+          document.title = nombreArchivo;
+          window.addEventListener('afterprint', restoreTitle, { once:true });
+          try{ iframe.contentWindow.addEventListener('afterprint', restoreTitle, { once:true }); }catch(e){}
           iframe.contentWindow.focus();
           iframe.contentWindow.print();   // abre el diálogo/vista previa de impresión
+          setTimeout(restoreTitle, 60000); // respaldo por si afterprint no se dispara
         }catch(e){
-          window.open(url, '_blank');     // si el navegador no lo permite, abre el PDF en otra pestaña
+          restoreTitle();
+          window.open(url, '_blank');      // si el navegador no lo permite, abre el PDF en otra pestaña
         }
       }, 300);
     };
