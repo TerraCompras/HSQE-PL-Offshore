@@ -29,7 +29,7 @@
     <div class="nav-section" id="typeNav"></div>
     <div class="nav-section" style="margin-top:auto;">
       <div class="nav-label">Configuración</div>
-      <div class="nav-item" id="navCatalogos" onclick="openCatalogManager()">⚙ Gestionar catálogos</div>
+      <div class="nav-item" onclick="openCatalogManager()">⚙ Gestionar catálogos</div>
       <div class="nav-item" id="printReportBtn" onclick="printCompanyReport()">🖨 Reporte PDF por sitio</div>
       <div class="nav-item" onclick="exportData()">⬇ Exportar datos (JSON)</div>
       <div class="nav-item" onclick="refreshData()">↻ Actualizar datos</div>
@@ -107,7 +107,7 @@
       <input type="text" id="searchBox" placeholder="Buscar por descripción, área, responsable..." oninput="renderTable()">
       <select id="statusFilter" onchange="renderTable()">
         <option value="">Todos los estados</option>
-        <option>Abierta</option><option>En Progreso</option><option>Cerrada</option>
+        <option>Abierto</option><option>En Proceso</option><option>Cerrado</option>
       </select>
       <select id="sevFilter" onchange="renderTable()">
         <option value="">Toda severidad</option>
@@ -117,6 +117,12 @@
         <option value="">Todos los vencimientos</option>
         <option value="overdue">Solo vencidas</option>
       </select>
+      <label style="font-size:11px;color:var(--graphite);display:flex;align-items:center;gap:4px;white-space:nowrap;">Desde
+        <input type="date" id="dateFrom" onchange="renderAll()" style="width:auto;">
+      </label>
+      <label style="font-size:11px;color:var(--graphite);display:flex;align-items:center;gap:4px;white-space:nowrap;">Hasta
+        <input type="date" id="dateTo" onchange="renderAll()" style="width:auto;">
+      </label>
       <button class="btn secondary" onclick="clearFilters()">Limpiar filtros</button>
     </div>
 
