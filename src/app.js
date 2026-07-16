@@ -2327,6 +2327,28 @@ async function logoToDataURL(src){
   }
 }
 
+// Descarga un adjunto de Storage (vía URL firmada) y lo devuelve como data URL + mime,
+// para poder incrustarlo dentro del PDF como anexo.
+async function attachmentToDataURL(path){
+  if(!path) return null;
+  try{
+    const { data, error } = await supabase.storage.from('hsqe-adjuntos-ploffshore').createSignedUrl(path, 300);
+    if(error || !data || !data.signedUrl) throw (error || new Error('sin URL firmada'));
+    const resp = await fetch(data.signedUrl);
+    const blob = await resp.blob();
+    const dataUrl = await new Promise((resolve, reject)=>{
+      const fr = new FileReader();
+      fr.onload = ()=>resolve(fr.result);
+      fr.onerror = reject;
+      fr.readAsDataURL(blob);
+    });
+    return { dataUrl, mime: blob.type || '' };
+  }catch(e){
+    console.warn('No se pudo descargar el anexo para el PDF:', path, e);
+    return null;
+  }
+}
+
 // Compositor común del cuerpo del reporte (usado por Word y por PDF).
 async function composeRecordBody(id){
   const r = DATA.records.find(x=>x.id===id);
@@ -2463,21 +2485,52 @@ async function composeRecordBody(id){
     body += `<h3 style="font-family:Arial;font-size:12pt;color:${NAVY};border-bottom:2px solid ${ORANGE};padding-bottom:3px;">Lecciones Aprendidas</h3>` +
       r.lecciones_aprendidas.map(l=>`<p style="font-size:10.5pt;">💡 ${l.texto}${l.la_id?` <span style="font-family:'Courier New',monospace;font-size:9pt;color:${GRAPH};">(${l.la_id})</span>`:''}</p>`).join('');
   }
+  let anexos = '';
   if(Array.isArray(r.adjuntos) && r.adjuntos.length>0){
+    // Listado resumen dentro del reporte
     body += `<h3 style="font-family:Arial;font-size:12pt;color:${NAVY};border-bottom:2px solid ${ORANGE};padding-bottom:3px;">Anexos al reporte</h3>` +
-      r.adjuntos.map((a,i)=>`<p style="font-size:10.5pt;margin:0 0 3px;">${i+1}. 📎 ${a.nombre}${a.tamano&&a.tamano!=='—'?` <span style="color:${GRAPH};">(${a.tamano})</span>`:''}${a.fecha?` <span style="color:${GRAPH};font-size:9pt;">· ${fmtDate(a.fecha)}</span>`:''}</p>`).join('');
+      r.adjuntos.map((a,i)=>`<p style="font-size:10.5pt;margin:0 0 3px;">${i+1}. 📎 ${a.nombre}${a.tamano&&a.tamano!=='—'?` <span style="color:${GRAPH};">(${a.tamano})</span>`:''}${a.fecha?` <span style="color:${GRAPH};font-size:9pt;">· ${fmtDate(a.fecha)}</span>`:''}${!a.path?` <span style="color:${GRAPH};font-size:9pt;">· referencia física/externa</span>`:''}</p>`).join('');
+
+    // Anexos incrustados: cada uno en una página nueva
+    const anexoHead = (i,a,nota) => `<div style="border-bottom:2px solid ${NAVY};margin-bottom:10px;padding-bottom:6px;">
+        <div style="font-size:8.5pt;color:${GRAPH};text-transform:uppercase;letter-spacing:0.6pt;">Anexo ${i+1}</div>
+        <div style="font-size:13pt;color:${NAVY};font-weight:bold;">${a.nombre}</div>
+        ${nota?`<div style="font-size:9pt;color:${GRAPH};">${nota}</div>`:''}
+      </div>`;
+    for(let i=0; i<r.adjuntos.length; i++){
+      const a = r.adjuntos[i];
+      if(!a.path) continue; // referencias físicas/externas: no hay archivo para incrustar
+      const file = await attachmentToDataURL(a.path);
+      if(!file){
+        anexos += `<div class="anexo-page">${anexoHead(i,a,'No se pudo recuperar el archivo desde el sistema al momento de imprimir.')}</div>`;
+        continue;
+      }
+      if((file.mime||'').startsWith('image/')){
+        anexos += `<div class="anexo-page">${anexoHead(i,a,'')}
+          <img src="${file.dataUrl}" style="max-width:100%;max-height:235mm;display:block;margin:0 auto;">
+        </div>`;
+      } else if((file.mime||'').indexOf('pdf') !== -1){
+        anexos += `<div class="anexo-page">${anexoHead(i,a,'Anexo en formato PDF. No puede incrustarse dentro de la impresión; el archivo permanece disponible en el sistema.')}</div>`;
+      } else {
+        anexos += `<div class="anexo-page">${anexoHead(i,a,'Anexo en formato no visualizable ('+(file.mime||'desconocido')+'). El archivo permanece disponible en el sistema.')}</div>`;
+      }
+    }
   }
 
-  return { r, co, logo, tipoInfo, body };
+  return { r, co, logo, tipoInfo, body, anexos };
 }
 
 // Printable en PDF, formato VERTICAL (A4 retrato). Imprime desde un iframe oculto
 // (sin abrir una pestaña en blanco) y espera a que carguen la fuente y las imágenes
 // antes de disparar la impresión. Si el reporte está visado, incluye la firma al pie.
 async function printRecordPDF(id){
+  const rec = DATA.records.find(x=>x.id===id);
+  if(rec && Array.isArray(rec.adjuntos) && rec.adjuntos.some(a=>a.path)){
+    showToast('Preparando PDF y anexos...');
+  }
   const doc = await composeRecordBody(id);
   if(!doc) return;
-  const { r, body } = doc;
+  const { r, body, anexos } = doc;
   const fullHtml = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${r.id}</title>
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap');
@@ -2487,10 +2540,12 @@ async function printRecordPDF(id){
       table{ page-break-inside: avoid; }
       h3{ page-break-after: avoid; }
       .firma-manuscrita{ page-break-inside: avoid; }
+      .anexo-page{ page-break-before: always; }
     </style>
     </head><body>
       ${body}
       ${firmaVisadoHtml(r)}
+      ${anexos || ''}
       <script>
         (function(){
           function imgsReady(){
