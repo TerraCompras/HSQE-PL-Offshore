@@ -198,3 +198,69 @@
 .login-footer{text-align:center;font-family:'DM Mono',monospace;font-size:9px;color:rgba(255,255,255,0.2);margin-top:20px;letter-spacing:1px;}
 .login-loading{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:#0B0F14;
   font-family:'DM Mono',monospace;font-size:10px;color:rgba(255,255,255,0.3);letter-spacing:3px;text-transform:uppercase;}
+
+
+/* ============================================================
+   RESPONSIVE — tablet y móvil (agregado)
+   Se apoya en las clases existentes; no requiere cambios en app.js.
+   ============================================================ */
+
+/* La tabla de registros es ancha: se permite scroll horizontal en vez
+   de romper el layout o desbordar la página. */
+#tableWrap{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+
+/* ---- Tablet (≤ 1024px) ---- */
+@media (max-width:1024px){
+  .main{ padding:22px 20px 50px; }
+  .kpi-row{ grid-template-columns:repeat(2,1fr); }
+  .topbar h1{ font-size:26px; }
+}
+
+/* ---- Móvil / tablet angosta (≤ 820px) ---- */
+@media (max-width:820px){
+  /* El layout deja de ser lado a lado: la barra pasa arriba */
+  .app{ flex-direction:column; }
+  .sidebar{
+    width:100%; height:auto; position:static;
+    flex-direction:column; border-bottom:1px solid rgba(255,255,255,0.12);
+  }
+  .brand{ padding:14px 16px 10px; }
+  .brand .name{ font-size:20px; }
+
+  /* La sección de configuración deja de empujarse al fondo */
+  .sidebar .nav-section{ margin-top:0 !important; }
+
+  /* Navegación por tipo: tira horizontal desplazable (compacta) */
+  #typeNav{ display:flex; flex-direction:row; flex-wrap:nowrap; overflow-x:auto;
+    gap:6px; padding:10px 12px; -webkit-overflow-scrolling:touch; }
+  #typeNav .nav-label{ display:none; }
+  #typeNav .nav-item{ flex:0 0 auto; margin-bottom:0; white-space:nowrap;
+    border-left:none; border-bottom:3px solid transparent; }
+  #typeNav .nav-item.active{ border-left:none; border-bottom:3px solid #A5B5CC; }
+  #typeNav .nav-count{ margin-left:6px; }
+
+  .main{ padding:16px 14px 40px; }
+  .topbar{ align-items:flex-start; }
+  .topbar h1{ font-size:22px; }
+
+  /* KPIs y formularios más cómodos */
+  .kpi-row{ grid-template-columns:repeat(2,1fr); gap:10px; }
+  .field-row, .field-row-3{ grid-template-columns:1fr; }
+
+  /* La tabla mantiene un ancho mínimo legible y se desplaza en horizontal */
+  #tableWrap table{ min-width:720px; }
+
+  /* Modal casi a pantalla completa */
+  .modal-overlay{ padding:0; align-items:stretch; }
+  .modal{ max-width:100%; min-height:100vh; border-radius:0; }
+  .modal-body{ max-height:calc(100vh - 132px); }
+  .modal-foot{ flex-wrap:wrap; }
+}
+
+/* ---- Teléfono chico (≤ 480px) ---- */
+@media (max-width:480px){
+  .kpi-row{ grid-template-columns:1fr; }
+  .topbar h1{ font-size:20px; }
+  .filters input[type=text]{ min-width:0; width:100%; }
+  .filters select{ flex:1; }
+}
