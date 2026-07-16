@@ -2625,15 +2625,35 @@ async function printRecordPDF(id){
       }
     }
 
-    // 4) Descargar
+    // 4) Nombre por defecto = código del reporte + instalación (ej: "ACC-001-2026 Atlantic Dama")
+    const nombreArchivo = `${r.id}${r.instalacion ? ' ' + r.instalacion : ''}`.trim();
+    outDoc.setTitle(nombreArchivo);      // el navegador lo usa como nombre por defecto al guardar
+    outDoc.setSubject('Reporte HSQE - Integra');
+
+    // 5) Vista previa de impresión (no descarga directa)
     const outBytes = await outDoc.save();
     const blob = new Blob([outBytes], { type:'application/pdf' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `${r.id}_${r.tipo}.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast('PDF generado' + (adj.length ? ' con anexos' : ''));
+
+    const prev = document.getElementById('pdfPreviewFrame');
+    if(prev){ try{ URL.revokeObjectURL(prev.src); }catch(e){} prev.remove(); }
+    const iframe = document.createElement('iframe');
+    iframe.id = 'pdfPreviewFrame';
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+    iframe.src = url;
+    document.body.appendChild(iframe);
+    iframe.onload = () => {
+      setTimeout(() => {
+        try{
+          iframe.contentWindow.focus();
+          iframe.contentWindow.print();   // abre el diálogo/vista previa de impresión
+        }catch(e){
+          window.open(url, '_blank');     // si el navegador no lo permite, abre el PDF en otra pestaña
+        }
+      }, 300);
+    };
+    setTimeout(() => { try{ URL.revokeObjectURL(url); }catch(e){} }, 120000);
+    showToast('Abriendo vista previa de impresión' + (adj.length ? ' (con anexos)' : ''));
   }catch(e){
     console.error('Error generando PDF:', e);
     showToast('Error al generar el PDF: ' + ((e && e.message) || e));
