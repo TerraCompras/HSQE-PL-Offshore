@@ -1556,7 +1556,12 @@ function humanFileSize(bytes){
 async function addAttachmentFile(input){
   if(!input.files || !input.files[0]) return;
   const f = input.files[0];
-  if(f.size > 15 * 1024 * 1024){ showToast('El archivo supera 15 MB'); input.value = ''; return; }
+  const LIMITE_MB = 2;
+  if(f.size > LIMITE_MB * 1024 * 1024){
+    showToast(`El archivo supera el límite de ${LIMITE_MB} MB (${humanFileSize(f.size)}). No se puede subir.`);
+    input.value = '';
+    return;
+  }
   showToast('Subiendo adjunto...');
   const safe = f.name.replace(/[^a-zA-Z0-9._-]/g, '_');
   const path = `${new Date().getFullYear()}/${uid()}_${safe}`;
@@ -1566,8 +1571,10 @@ async function addAttachmentFile(input){
     modalAttachments.push({nombre: f.name, tamano: humanFileSize(f.size), fecha: todayISO(), path});
     showToast('Adjunto subido');
   }catch(e){
-    console.error('Error subiendo adjunto:', e && e.message ? e.message : e);
-    showToast('Error al subir el adjunto');
+    const msg = (e && e.message) ? e.message : String(e);
+    console.error('Error subiendo adjunto:', msg);
+    if(/size|large|exceed|payload|413/i.test(msg)) showToast('El servidor rechazó el archivo por superar el límite de 2 MB');
+    else showToast('Error al subir el adjunto');
   }
   input.value = '';
   renderAttachmentsList();
