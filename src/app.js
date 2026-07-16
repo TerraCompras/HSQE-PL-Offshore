@@ -75,6 +75,23 @@ const TIPOS_CON_SEVERIDAD = ['ACC','INC','CUA','AI','CI'];
 
 const NATURALEZA_CUASI = ['','Personal','Material','Ambas'];
 
+// ===== Datos ambientales del incidente (según formulario "Detalle de viento e iluminación") =====
+const FUERZA_VIENTO = ['N/A','0 - Calma','1 - Ventolina','2 - Viento suave','3 - Viento leve','4 - Viento moderado','5 - Viento regular','6 - Viento fuerte','7 - Viento muy fuerte','8 - Temporal','9 - Temporal fuerte','10 - Temporal muy fuerte','11 - Tempestad','12 - Huracán','> 12'];
+const ESTADO_MAR = ['N/A','Calma','Rizada','Marejadilla','Marejada','Marejada fuerte','Gruesa','Muy gruesa','Arbolada','Montañosa','Caótica'];
+const FUENTE_LUZ = ['N/A','Luz del día completa','Luz del día parcial','Luz del día ensombrecida','Iluminación de cubierta adecuada','Iluminación de cubierta buena','Iluminación de cubierta pobre','Iluminación interior adecuada','Iluminación interior buena','Iluminación interior pobre','Luz de luna completa','Luz de luna parcial','Noche cerrada','Linterna','Otra'];
+
+// Preguntas guía para la descripción de un Incidente
+const INC_PREGUNTAS = [
+  'Describa qué pasó.',
+  'Operación al momento del incidente.',
+  '¿Quién estuvo involucrado?',
+  '¿Qué equipo estuvo involucrado y bajo qué situación (incluyendo las condiciones del equipo)?',
+  '¿Hubo materiales involucrados? (Pintura, cargamento, combustible, etc.)',
+  '¿Hubo factores ambientales involucrados? (Ruido, gases, iluminación, etc.)',
+  '¿Cómo y por qué sucedió el incidente de acuerdo a su punto de vista?',
+  '¿Hubo incumplimiento al SGS o a regulaciones aplicables?',
+];
+
 let CATEGORIAS_ACTO_INSEGURO = ['Falta de EPP','Falta de atención','Falta de control','Incumplimiento del SGS','Incumplimiento de órdenes','Otros'];
 let CATEGORIAS_CONDICION_INSEGURA = ['Falta de arrancho','Arrancho inadecuado','Equipo desafectado','Equipo defectuoso','Falta de limpieza','Falta de señalización','Otros'];
 let TIPIFICACION_INCIDENTE = ['Daño a la carga','Daño al buque','Daño a equipo','Derrame','Otros'];
@@ -102,6 +119,7 @@ const PARTE_CUERPO = ['',
 
 let modalAttachments = [];
 let modalLecciones = [];
+let modalInvestigadores = [];
 let modalAccionesCorrectivas = [];
 let modalAccionesPreventivas = [];
 let presetCategoriaEvento = null;
@@ -1026,6 +1044,55 @@ function openRecordForm(id){
           </div>
         </div>
 
+        <div class="field-row">
+          <div class="field"><label>Reportado por <span style="font-weight:400;color:var(--graphite-light);">(nombre / cargo)</span></label>
+            <input type="text" id="f_reportado" list="personasDatalist" value="${r?r.reportado_por||'':''}" placeholder="Ej: Juan Pérez / Contramaestre">
+          </div>
+        </div>
+
+        <div id="block_investigadores">
+          <div class="section-title" style="margin-top:14px;">Investigadores</div>
+          <div class="field"><label>Investigador líder <span style="font-weight:400;color:var(--graphite-light);">(nombre / cargo)</span></label>
+            <input type="text" id="f_investigador_lider" list="personasDatalist" value="${r?r.investigador_lider||'':''}" placeholder="Ej: María Gómez / Oficial de Seguridad">
+          </div>
+          <div class="section-title with-btn" style="margin-top:8px;">
+            <span style="font-size:12.5px;">Investigadores adicionales</span>
+            <button class="btn secondary" style="padding:3px 10px;font-size:11px;" onclick="addInvestigador()">+ Agregar investigador</button>
+          </div>
+          <div id="investigadoresList"></div>
+        </div>
+
+        <div id="block_condiciones_inc">
+          <div class="section-title" style="margin-top:14px;">Datos del incidente (condiciones al momento del evento)</div>
+          <div class="field-row-3">
+            <div class="field"><label>Fuerza del viento</label>
+              <select id="f_fuerza_viento">${FUERZA_VIENTO.map(o=>`<option ${r&&r.fuerza_viento===o?'selected':''}>${o}</option>`).join('')}</select>
+            </div>
+            <div class="field"><label>Estado del mar</label>
+              <select id="f_estado_mar">${ESTADO_MAR.map(o=>`<option ${r&&r.estado_mar===o?'selected':''}>${o}</option>`).join('')}</select>
+            </div>
+            <div class="field"><label>Fuente de luz</label>
+              <select id="f_fuente_luz">${FUENTE_LUZ.map(o=>`<option ${r&&r.fuente_luz===o?'selected':''}>${o}</option>`).join('')}</select>
+            </div>
+          </div>
+          <div class="field-row-3">
+            <div class="field"><label>Temperatura exterior (°C)</label>
+              <input type="text" id="f_temp_exterior" value="${r?r.temp_exterior||'':''}" placeholder="Ej: 12 · o N/A">
+            </div>
+            <div class="field"><label>Temperatura ambiente (°C)</label>
+              <input type="text" id="f_temp_ambiente" value="${r?r.temp_ambiente||'':''}" placeholder="Ej: 19 · o N/A">
+            </div>
+            <div class="field"><label>Rumbo (verdadero, °)</label>
+              <input type="text" id="f_rumbo" value="${r?r.rumbo||'':''}" placeholder="Ej: 171 · o N/A">
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label>Velocidad (nudos)</label>
+              <input type="text" id="f_velocidad" value="${r?r.velocidad||'':''}" placeholder="Ej: 3.5 · o N/A">
+            </div>
+          </div>
+        </div>
+
         <div class="section-title">Descripción</div>
         <div class="field"><label>Título del evento</label>
           <input type="text" id="f_titulo" value="${r?r.titulo||'':''}" placeholder="Título breve que resuma el evento" maxlength="120">
@@ -1033,13 +1100,18 @@ function openRecordForm(id){
         <div class="field"><label>Área / Departamento</label>
           <input type="text" id="f_area" value="${r?r.area||'':''}" placeholder="Ej: Cubierta, Sala de Máquinas, Puente">
         </div>
-        <div class="field"><label>Descripción del evento</label>
+        <div class="field" id="block_desc_simple"><label>Descripción del evento</label>
           <textarea id="f_descripcion" placeholder="Detalle qué ocurrió, cómo y dónde">${r?r.descripcion||'':''}</textarea>
         </div>
-        <div class="field-row">
-          <div class="field"><label>Reportado por</label>
-            <input type="text" id="f_reportado" list="personasDatalist" value="${r?r.reportado_por||'':''}">
-          </div>
+        <div id="block_desc_inc">
+          ${INC_PREGUNTAS.map((q,i)=>{
+            let val = '';
+            if(r && r.inc_descripcion) val = r.inc_descripcion['q'+(i+1)] || '';
+            else if(r && i===0) val = r.descripcion || ''; // incidente previo: la descripción libre pasa a la pregunta 1
+            return `<div class="field"><label>${i+1}. ${q}</label>
+            <textarea id="f_inc_q${i+1}" placeholder="Respuesta...">${val}</textarea>
+          </div>`;
+          }).join('')}
         </div>
 
         <div id="block_ocimf">
@@ -1257,6 +1329,8 @@ function openRecordForm(id){
   renderAttachmentsList();
   modalLecciones = leccionesFromRecord(r);
   renderLeccionesList();
+  modalInvestigadores = investigadoresFromRecord(r);
+  renderInvestigadoresList();
   modalAccionesCorrectivas = accionesFromRecord(r, 'acciones_correctivas');
   modalAccionesPreventivas = accionesFromRecord(r, 'acciones_preventivas');
   renderAccionesBlock('correctiva');
@@ -1308,6 +1382,38 @@ function renderLeccionesList(){
       💡 ${l.texto} ${l.la_id?`<span class="mono" style="color:var(--graphite-light);font-size:10px;">(${l.la_id})</span>`:''}
       <span style="cursor:pointer;color:var(--red);margin-left:4px;" onclick="removeLeccion(${i})">✕</span>
     </span>`).join('');
+}
+
+/* ============ INVESTIGADORES ADICIONALES (solo Incidente) ============ */
+function investigadoresFromRecord(r){
+  if(r && Array.isArray(r.investigadores)) return JSON.parse(JSON.stringify(r.investigadores));
+  return [];
+}
+function addInvestigador(){
+  modalInvestigadores.push({ nombre:'', cargo:'' });
+  renderInvestigadoresList();
+}
+function removeInvestigador(i){
+  modalInvestigadores.splice(i,1);
+  renderInvestigadoresList();
+}
+function updateInvestigadorField(i, campo, val){
+  if(modalInvestigadores[i]) modalInvestigadores[i][campo] = val;
+}
+function renderInvestigadoresList(){
+  const wrap = document.getElementById('investigadoresList');
+  if(!wrap) return;
+  if(modalInvestigadores.length===0){ wrap.innerHTML = '<span style="font-size:12px;color:var(--graphite-light)">Sin investigadores adicionales.</span>'; return; }
+  wrap.innerHTML = modalInvestigadores.map((inv,i)=>`
+    <div class="field-row" style="align-items:flex-end;">
+      <div class="field"><label style="font-size:11px;">Nombre</label>
+        <input type="text" list="personasDatalist" value="${(inv.nombre||'').replace(/"/g,'&quot;')}" placeholder="Nombre" oninput="updateInvestigadorField(${i},'nombre',this.value)">
+      </div>
+      <div class="field"><label style="font-size:11px;">Cargo</label>
+        <input type="text" value="${(inv.cargo||'').replace(/"/g,'&quot;')}" placeholder="Cargo" oninput="updateInvestigadorField(${i},'cargo',this.value)">
+      </div>
+      <button class="btn secondary" style="padding:6px 10px;color:var(--red);" onclick="removeInvestigador(${i})">✕</button>
+    </div>`).join('');
 }
 
 /* ============ ACCIONES CORRECTIVAS / PREVENTIVAS ============ */
@@ -1394,6 +1500,12 @@ function toggleConditionalFields(){
   document.getElementById('block_comunicacion').style.display = TIPOS_SIN_CAUSA_ACCION.includes(tipo) ? 'block' : 'none';
   document.getElementById('block_cuasi').style.display = (tipo === 'CUA') ? 'block' : 'none';
   document.getElementById('block_categoria_aici').style.display = (tipo === 'INC') ? 'block' : 'none';
+  // Bloques exclusivos de Incidente: investigadores, condiciones ambientales y descripción guiada
+  const esInc = (tipo === 'INC');
+  document.getElementById('block_investigadores').style.display = esInc ? 'block' : 'none';
+  document.getElementById('block_condiciones_inc').style.display = esInc ? 'block' : 'none';
+  document.getElementById('block_desc_inc').style.display = esInc ? 'block' : 'none';
+  document.getElementById('block_desc_simple').style.display = esInc ? 'none' : 'block';
   updateCategoriaOptions();
   document.getElementById('block_severidad').style.display = TIPOS_CON_SEVERIDAD.includes(tipo) ? 'block' : 'none';
   document.getElementById('block_lecciones').style.display = TIPOS_CON_LECCIONES.includes(tipo) ? 'block' : 'none';
@@ -1584,6 +1696,17 @@ async function saveRecord(){
   const fechaSel = get('f_fecha');
   const tipoSinAcciones = TIPOS_SIN_CAUSA_ACCION.includes(tipoSel);
   const estadoSel = get('f_estado');
+  const esInc = (tipoSel === 'INC');
+
+  // Descripción guiada del Incidente (8 preguntas). Se guarda como objeto q1..q8.
+  let incDescripcion = null;
+  if(esInc){
+    incDescripcion = {};
+    INC_PREGUNTAS.forEach((q,i)=>{ incDescripcion['q'+(i+1)] = getIf('f_inc_q'+(i+1)).trim(); });
+  }
+  // Para validación / tablas / búsqueda, la descripción principal:
+  // en Incidente es la respuesta a "Describa qué pasó" (Q1); en el resto, el textarea único.
+  const descripcionPrincipal = esInc ? (incDescripcion.q1 || '') : get('f_descripcion');
 
   if(!tipoSinAcciones && estadoSel === 'Cerrado'){
     const pendientes = [...modalAccionesCorrectivas, ...modalAccionesPreventivas].filter(a => a.estado !== 'Cerrado');
@@ -1601,8 +1724,18 @@ async function saveRecord(){
     fecha: fechaSel,
     area: get('f_area'),
     titulo: get('f_titulo'),
-    descripcion: get('f_descripcion'),
+    descripcion: descripcionPrincipal,
+    inc_descripcion: esInc ? incDescripcion : null,
     reportado_por: get('f_reportado'),
+    investigador_lider: esInc ? get('f_investigador_lider') : '',
+    investigadores: esInc ? JSON.parse(JSON.stringify(modalInvestigadores.filter(i => (i.nombre||'').trim() || (i.cargo||'').trim()))) : [],
+    fuerza_viento: esInc ? getIf('f_fuerza_viento') : '',
+    estado_mar: esInc ? getIf('f_estado_mar') : '',
+    fuente_luz: esInc ? getIf('f_fuente_luz') : '',
+    temp_exterior: esInc ? getIf('f_temp_exterior').trim() : '',
+    temp_ambiente: esInc ? getIf('f_temp_ambiente').trim() : '',
+    rumbo: esInc ? getIf('f_rumbo').trim() : '',
+    velocidad: esInc ? getIf('f_velocidad').trim() : '',
     clasificacion: getIf('f_clasif'),
     incluir_kpi: (tipoSel === 'ACC' && document.getElementById('f_incluir_kpi')) ? document.getElementById('f_incluir_kpi').checked : false,
     naturaleza_cuasi: getIf('f_naturaleza_cuasi'),
@@ -1637,7 +1770,10 @@ async function saveRecord(){
     referencia_normativa: get('f_referencia'),
     adjuntos: JSON.parse(JSON.stringify(modalAttachments)),
   };
-  if(!rec.fecha || !rec.titulo || !rec.descripcion){ showToast('Completá al menos fecha, título y descripción'); return; }
+  if(!rec.fecha || !rec.titulo || !rec.descripcion){
+    showToast(esInc ? 'Completá al menos fecha, título y la pregunta 1 (Describa qué pasó)' : 'Completá al menos fecha, título y descripción');
+    return;
+  }
 
   if(editingId){
     const prev = DATA.records.find(x=>x.id===editingId);
@@ -2229,8 +2365,34 @@ async function composeRecordBody(id){
       ${metaRow({l:'Fecha de cierre', v:fmtDate(r.fecha_cierre)}, {l:'Referencia normativa', v:r.referencia_normativa||'—'})}
     </table>
 
-    <h3 style="font-family:Arial;font-size:12pt;color:${NAVY};border-bottom:2px solid ${ORANGE};padding-bottom:3px;">Descripción del Evento</h3>
-    <p style="font-size:10.5pt;line-height:1.5;">${r.descripcion||'—'}</p>`;
+    `;
+
+  const secH3 = t => `<h3 style="font-family:Arial;font-size:12pt;color:${NAVY};border-bottom:2px solid ${ORANGE};padding-bottom:3px;">${t}</h3>`;
+  if(r.tipo==='INC'){
+    // Investigadores
+    if(r.investigador_lider || (Array.isArray(r.investigadores) && r.investigadores.length)){
+      body += secH3('Investigadores');
+      body += `<p style="font-size:10.5pt;margin:0 0 4px;"><b>Investigador líder:</b> ${r.investigador_lider||'—'}</p>`;
+      if(Array.isArray(r.investigadores) && r.investigadores.length){
+        body += `<p style="font-size:10.5pt;margin:0 0 2px;"><b>Investigadores adicionales:</b></p>` +
+          r.investigadores.map(i=>`<p style="font-size:10pt;margin:0 0 2px 12px;">• ${i.nombre||'—'}${i.cargo?' — '+i.cargo:''}</p>`).join('');
+      }
+    }
+    // Condiciones al momento del evento
+    body += secH3('Datos del incidente (condiciones al momento del evento)');
+    body += `<table style="width:100%;border-collapse:collapse;margin-bottom:12px;">
+      ${metaRow({l:'Fuerza del viento', v:r.fuerza_viento||'N/A'}, {l:'Estado del mar', v:r.estado_mar||'N/A'})}
+      ${metaRow({l:'Fuente de luz', v:r.fuente_luz||'N/A'}, {l:'Temperatura exterior (°C)', v:r.temp_exterior||'N/A'})}
+      ${metaRow({l:'Temperatura ambiente (°C)', v:r.temp_ambiente||'N/A'}, {l:'Rumbo (verdadero, °)', v:r.rumbo||'N/A'})}
+      ${metaRow({l:'Velocidad (nudos)', v:r.velocidad||'N/A'}, {l:'', v:''})}
+    </table>`;
+  }
+
+  // Descripción (guiada para Incidente; libre para el resto)
+  body += secH3(r.tipo==='INC' ? 'Descripción del Incidente' : 'Descripción del Evento');
+  body += r.tipo==='INC'
+    ? INC_PREGUNTAS.map((q,i)=>{ const a = (r.inc_descripcion && r.inc_descripcion['q'+(i+1)]) ? r.inc_descripcion['q'+(i+1)] : ''; return `<p style="font-size:10.5pt;line-height:1.45;margin:0 0 7px;"><b>${i+1}. ${q}</b><br>${a || '—'}</p>`; }).join('')
+    : `<p style="font-size:10.5pt;line-height:1.5;">${r.descripcion||'—'}</p>`;
 
   if(TIPOS_CON_OCIMF.includes(r.tipo) && r.clasificacion){
     body += `<h3 style="font-family:Arial;font-size:12pt;color:${NAVY};border-bottom:2px solid ${ORANGE};padding-bottom:3px;">Clasificación OCIMF/TMSA</h3><p style="font-size:10.5pt;">${r.clasificacion}${r.incluir_kpi?' <i>(incluido en KPI OCIMF)</i>':''}</p>`;
@@ -2295,8 +2457,8 @@ async function composeRecordBody(id){
       r.lecciones_aprendidas.map(l=>`<p style="font-size:10.5pt;">💡 ${l.texto}${l.la_id?` <span style="font-family:'Courier New',monospace;font-size:9pt;color:${GRAPH};">(${l.la_id})</span>`:''}</p>`).join('');
   }
   if(Array.isArray(r.adjuntos) && r.adjuntos.length>0){
-    body += `<h3 style="font-family:Arial;font-size:12pt;color:${NAVY};border-bottom:2px solid ${ORANGE};padding-bottom:3px;">Adjuntos</h3>` +
-      r.adjuntos.map(a=>`<p style="font-size:10.5pt;">📎 ${a.nombre} (${a.tamano})</p>`).join('');
+    body += `<h3 style="font-family:Arial;font-size:12pt;color:${NAVY};border-bottom:2px solid ${ORANGE};padding-bottom:3px;">Anexos al reporte</h3>` +
+      r.adjuntos.map((a,i)=>`<p style="font-size:10.5pt;margin:0 0 3px;">${i+1}. 📎 ${a.nombre}${a.tamano&&a.tamano!=='—'?` <span style="color:${GRAPH};">(${a.tamano})</span>`:''}${a.fecha?` <span style="color:${GRAPH};font-size:9pt;">· ${fmtDate(a.fecha)}</span>`:''}</p>`).join('');
   }
 
   return { r, co, logo, tipoInfo, body };
@@ -2356,7 +2518,7 @@ async function printRecordPDF(id){
 }
 
 /* ============ INIT ============ */
-Object.assign(window, { addAccion, addAttachmentFile, addAttachmentManual, addCatalogItem, addDotacionMes, addLeccion, addVessel, addVisador, clearFilters, closeModal, deleteRecord, exportData, printRecordPDF, openAttachment, openCatalogManager, openRecordForm, openVisadoresManager, printChartsReport, printCompanyReport, removeAccion, removeAttachment, removeCatalogItem, removeDotacionMes, removeLeccion, removeVessel, removeVisador, renderAuditNcKpi, renderOcimfKpi, renderScoreCard, setScoreCardYear, setScoreCardTarget, renderTable, saveRecord, setCompanyLogo, setSiteFilter, setTypeFilter, toggleCategoriaOtro, toggleTipificacionCausaOtro, toggleVisado, updateAccionField, updateVesselOptions, validateEstadoCierre, refreshData, logoutHsqe });
+Object.assign(window, { addAccion, addAttachmentFile, addAttachmentManual, addCatalogItem, addDotacionMes, addInvestigador, addLeccion, addVessel, addVisador, clearFilters, closeModal, deleteRecord, exportData, printRecordPDF, openAttachment, openCatalogManager, openRecordForm, openVisadoresManager, printChartsReport, printCompanyReport, removeAccion, removeAttachment, removeCatalogItem, removeDotacionMes, removeInvestigador, removeLeccion, removeVessel, removeVisador, renderAuditNcKpi, renderOcimfKpi, renderScoreCard, setScoreCardYear, setScoreCardTarget, renderTable, saveRecord, setCompanyLogo, setSiteFilter, setTypeFilter, toggleCategoriaOtro, toggleTipificacionCausaOtro, toggleVisado, updateAccionField, updateInvestigadorField, updateVesselOptions, validateEstadoCierre, refreshData, logoutHsqe });
 
 async function logoutHsqe(){
   await supabase.auth.signOut();
