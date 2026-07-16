@@ -917,7 +917,7 @@ function renderTable(){
       <td class="mono ${isOverdue(r)?'overdue':''}" style="font-size:12px;white-space:nowrap;">${isOverdue(r)?'⚠ ':''}${resumen.vencimiento?fmtDate(resumen.vencimiento):'—'}</td>
       <td>${resumen.responsable}</td>
       <td style="text-align:center">${nAdj>0 ? '📎 '+nAdj : '—'}</td>
-      <td style="text-align:center;white-space:nowrap;"><button class="btn" style="padding:4px 8px;font-size:11px;" title="Imprimir PDF" onclick="event.stopPropagation();printRecordPDF('${r.id}')">🖨</button> <button class="btn secondary" style="padding:4px 8px;font-size:11px;" title="Descargar Word" onclick="event.stopPropagation();exportRecordToWord('${r.id}')">📄</button></td>
+      <td style="text-align:center;white-space:nowrap;"><button class="btn" style="padding:4px 8px;font-size:11px;" title="Imprimir PDF" onclick="event.stopPropagation();printRecordPDF('${r.id}')">🖨 PDF</button></td>
     </tr>`;
   }).join('');
 
@@ -1242,7 +1242,6 @@ function openRecordForm(id){
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
             ${r? `<button class="btn danger" onclick="deleteRecord('${r.id}')">Eliminar</button>` : ''}
             ${r? `<button class="btn" onclick="printRecordPDF('${r.id}')">🖨 Imprimir PDF</button>` : ''}
-            ${r? `<button class="btn secondary" onclick="exportRecordToWord('${r.id}')">📄 Word</button>` : ''}
           </div>
           <div style="display:flex;gap:8px;">
             <button class="btn secondary" onclick="closeModal()">Cancelar</button>
@@ -1975,7 +1974,7 @@ function exportData(){
 }
 
 /* ============ REPORTE PDF DE GRÁFICOS ============ */
-function printChartsReport(){
+async function printChartsReport(){
   const container = document.getElementById('printReport');
   const now = new Date();
   const fechaHora = now.toLocaleDateString('es-AR') + ' ' + now.toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
@@ -2069,6 +2068,18 @@ function printChartsReport(){
       ${tableHtml}
     </div>`}
   </div>`;
+
+  // Esperar a que las imágenes (gráficos convertidos a PNG y logo) estén decodificadas
+  // antes de imprimir; si no, en la primera impresión salen en blanco.
+  const imgs = Array.from(container.querySelectorAll('img'));
+  try{
+    await Promise.all(imgs.map(img => {
+      if(img.complete && img.naturalWidth > 0) return Promise.resolve();
+      if(img.decode) return img.decode().catch(()=>{});
+      return new Promise(res => { img.onload = res; img.onerror = res; });
+    }));
+  }catch(e){ /* seguimos igual con la impresión */ }
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
   window.print();
 }
 
@@ -2288,51 +2299,16 @@ async function composeRecordBody(id){
       r.adjuntos.map(a=>`<p style="font-size:10.5pt;">📎 ${a.nombre} (${a.tamano})</p>`).join('');
   }
 
-  // Bloque "Respuesta del Responsable" (para completar a mano / firmar).
-  const respuestaBlock = `
-    <table style="width:100%;border:2px solid ${NAVY};border-collapse:collapse;margin-top:20px;">
-      <tr><td style="padding:14px;">
-        <h3 style="font-family:Arial;font-size:12pt;color:${NAVY};margin-top:0;">Respuesta del Responsable</h3>
-        <p style="font-size:9pt;color:${GRAPH};">Completar y devolver a HSQE con la acción tomada, evidencia y fecha de implementación.</p>
-        <p style="border-bottom:1px solid #999;height:28px;">&nbsp;</p>
-        <p style="border-bottom:1px solid #999;height:28px;">&nbsp;</p>
-        <p style="border-bottom:1px solid #999;height:28px;">&nbsp;</p>
-        <table style="width:100%;margin-top:14px;"><tr>
-          <td style="width:50%;"><p style="border-bottom:1px solid #999;height:34px;">&nbsp;</p><div style="font-size:8pt;color:${GRAPH};text-transform:uppercase;">Firma y aclaración</div></td>
-          <td style="width:50%;"><p style="border-bottom:1px solid #999;height:34px;">&nbsp;</p><div style="font-size:8pt;color:${GRAPH};text-transform:uppercase;">Fecha</div></td>
-        </tr></table>
-      </td></tr>
-    </table>`;
-
-  return { r, co, logo, tipoInfo, body, respuestaBlock };
+  return { r, co, logo, tipoInfo, body };
 }
 
-async function exportRecordToWord(id){
-  const doc = await composeRecordBody(id);
-  if(!doc) return;
-  const { r, body, respuestaBlock } = doc;
-  const fullHtml = `<!DOCTYPE html><html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-    <head><meta charset="utf-8"><title>${r.id}</title>
-    <!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->
-    <style>body{font-family:Calibri, Arial, sans-serif;color:#222;}</style>
-    </head><body>${body}${respuestaBlock}${firmaVisadoHtml(r)}</body></html>`;
-
-  const blob = new Blob(['\ufeff', fullHtml], {type: 'application/msword'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${r.id}_${r.tipo}.doc`;
-  a.click();
-  URL.revokeObjectURL(url);
-  showToast('Documento Word generado');
-}
-
-// Printable en PDF, formato VERTICAL (A4 retrato). Abre una ventana lista para
-// "Guardar como PDF". Si el reporte está visado, incluye la firma manuscrita al pie.
+// Printable en PDF, formato VERTICAL (A4 retrato). Imprime desde un iframe oculto
+// (sin abrir una pestaña en blanco) y espera a que carguen la fuente y las imágenes
+// antes de disparar la impresión. Si el reporte está visado, incluye la firma al pie.
 async function printRecordPDF(id){
   const doc = await composeRecordBody(id);
   if(!doc) return;
-  const { r, body, respuestaBlock } = doc;
+  const { r, body } = doc;
   const fullHtml = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${r.id}</title>
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap');
@@ -2342,28 +2318,45 @@ async function printRecordPDF(id){
       table{ page-break-inside: avoid; }
       h3{ page-break-after: avoid; }
       .firma-manuscrita{ page-break-inside: avoid; }
-      @media print { .no-print{ display:none; } }
     </style>
     </head><body>
       ${body}
-      ${respuestaBlock}
       ${firmaVisadoHtml(r)}
       <script>
-        function __go(){ try{ window.focus(); window.print(); }catch(e){} }
-        if (document.fonts && document.fonts.ready) { document.fonts.ready.then(function(){ setTimeout(__go, 200); }); }
-        else { setTimeout(__go, 500); }
+        (function(){
+          function imgsReady(){
+            var imgs = Array.prototype.slice.call(document.images || []);
+            var pend = imgs.filter(function(i){ return !(i.complete && i.naturalWidth > 0); });
+            if(pend.length === 0) return Promise.resolve();
+            return Promise.all(pend.map(function(i){ return new Promise(function(res){ i.onload = res; i.onerror = res; }); }));
+          }
+          function go(){ imgsReady().then(function(){ setTimeout(function(){ window.focus(); window.print(); }, 120); }); }
+          window.onafterprint = function(){ try{ parent.__cleanupPdfFrame && parent.__cleanupPdfFrame(); }catch(e){} };
+          if (document.fonts && document.fonts.ready) { document.fonts.ready.then(go); } else { setTimeout(go, 300); }
+        })();
       <\/script>
     </body></html>`;
-  const w = window.open('', '_blank');
-  if(!w){ showToast('Habilitá las ventanas emergentes para generar el PDF'); return; }
-  w.document.open();
-  w.document.write(fullHtml);
-  w.document.close();
+
+  const old = document.getElementById('pdfPrintFrame');
+  if(old) old.remove();
+  const iframe = document.createElement('iframe');
+  iframe.id = 'pdfPrintFrame';
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;';
+  document.body.appendChild(iframe);
+  window.__cleanupPdfFrame = function(){
+    const f = document.getElementById('pdfPrintFrame');
+    if(f) setTimeout(function(){ f.remove(); }, 300);
+  };
+  const idoc = iframe.contentWindow.document;
+  idoc.open();
+  idoc.write(fullHtml);
+  idoc.close();
   showToast('Generando PDF vertical — elegí "Guardar como PDF" en el diálogo de impresión');
 }
 
 /* ============ INIT ============ */
-Object.assign(window, { addAccion, addAttachmentFile, addAttachmentManual, addCatalogItem, addDotacionMes, addLeccion, addVessel, addVisador, clearFilters, closeModal, deleteRecord, exportData, exportRecordToWord, printRecordPDF, openAttachment, openCatalogManager, openRecordForm, openVisadoresManager, printChartsReport, printCompanyReport, removeAccion, removeAttachment, removeCatalogItem, removeDotacionMes, removeLeccion, removeVessel, removeVisador, renderAuditNcKpi, renderOcimfKpi, renderScoreCard, setScoreCardYear, setScoreCardTarget, renderTable, saveRecord, setCompanyLogo, setSiteFilter, setTypeFilter, toggleCategoriaOtro, toggleTipificacionCausaOtro, toggleVisado, updateAccionField, updateVesselOptions, validateEstadoCierre, refreshData, logoutHsqe });
+Object.assign(window, { addAccion, addAttachmentFile, addAttachmentManual, addCatalogItem, addDotacionMes, addLeccion, addVessel, addVisador, clearFilters, closeModal, deleteRecord, exportData, printRecordPDF, openAttachment, openCatalogManager, openRecordForm, openVisadoresManager, printChartsReport, printCompanyReport, removeAccion, removeAttachment, removeCatalogItem, removeDotacionMes, removeLeccion, removeVessel, removeVisador, renderAuditNcKpi, renderOcimfKpi, renderScoreCard, setScoreCardYear, setScoreCardTarget, renderTable, saveRecord, setCompanyLogo, setSiteFilter, setTypeFilter, toggleCategoriaOtro, toggleTipificacionCausaOtro, toggleVisado, updateAccionField, updateVesselOptions, validateEstadoCierre, refreshData, logoutHsqe });
 
 async function logoutHsqe(){
   await supabase.auth.signOut();
