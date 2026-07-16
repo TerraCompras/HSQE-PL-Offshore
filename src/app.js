@@ -1370,8 +1370,15 @@ function openRecordForm(id){
 function renderPersonasDatalist(){
   const dl = document.getElementById('personasDatalist');
   if(!dl) return;
-  const personas = (DATA.catalogos && DATA.catalogos.personas) || [];
-  dl.innerHTML = personas.map(p=>`<option value="${p}">`).join('');
+  const raw = (DATA.catalogos && DATA.catalogos.personas) || [];
+  // Solo nombres: si alguna entrada vieja quedó como "Nombre / Cargo", se muestra solo el nombre.
+  const nombres = [];
+  raw.forEach(p => {
+    const nombre = String(p).split('/')[0].trim();
+    if(nombre && !nombres.some(n => n.toLowerCase() === nombre.toLowerCase())) nombres.push(nombre);
+  });
+  nombres.sort((a,b) => a.localeCompare(b, 'es'));
+  dl.innerHTML = nombres.map(p => `<option value="${p.replace(/"/g,'&quot;')}">`).join('');
 }
 function registrarPersonaSiEsNueva(nombre){
   if(!nombre) return;
@@ -1471,7 +1478,10 @@ function updateAccionField(tipoAccion, i, field, value){
   const arr = accionesArray(tipoAccion);
   if(!arr[i]) return;
   arr[i][field] = value;
-  if(field === 'estado') renderAccionesBlock(tipoAccion);
+  if(field === 'estado'){
+    if(value === 'Cerrado' && !arr[i].fecha_cierre) arr[i].fecha_cierre = todayISO();
+    renderAccionesBlock(tipoAccion);
+  }
 }
 function validateEstadoCierre(sel){
   const tipo = document.getElementById('f_tipo').value;
@@ -1514,6 +1524,9 @@ function renderAccionesBlock(tipoAccion){
           </select>
         </div>
       </div>
+      ${a.estado==='Cerrado' ? `<div class="field"><label>Fecha de cierre</label>
+        <input type="date" value="${a.fecha_cierre||''}" oninput="updateAccionField('${tipoAccion}',${i},'fecha_cierre',this.value)">
+      </div>` : ''}
     </div>`).join('');
 }
 function toggleConditionalFields(){
@@ -1757,6 +1770,13 @@ async function saveRecord(){
       showToast('No se puede cerrar el reporte: hay acciones correctivas/preventivas sin cerrar');
       return;
     }
+  }
+
+  const accionCerradaSinFecha = [...modalAccionesCorrectivas, ...modalAccionesPreventivas]
+    .find(a => a.estado === 'Cerrado' && !a.fecha_cierre);
+  if(accionCerradaSinFecha){
+    showToast('Indicá la fecha de cierre de las acciones en estado "Cerrado"');
+    return;
   }
 
   const rec = {
@@ -2410,7 +2430,6 @@ async function composeRecordBody(id){
       <tr>
         <td style="width:70%;vertical-align:middle;border-bottom:3px solid ${NAVY};padding-bottom:8px;">
           <div style="font-family:Arial,sans-serif;font-size:18pt;font-weight:bold;color:${NAVY};letter-spacing:1pt;">INTEGRA · MÓDULO HSQE</div>
-          <div style="font-size:11pt;color:${ORANGE};font-weight:bold;letter-spacing:0.5pt;">SOLICITUD DE ACCIÓN / RESPUESTA</div>
           <div style="font-size:8.5pt;color:${GRAPH};font-family:'Courier New',monospace;margin-top:2px;">Generado el ${fechaHora}</div>
         </td>
         <td style="width:30%;text-align:right;vertical-align:middle;border-bottom:3px solid ${NAVY};padding-bottom:8px;">
@@ -2509,7 +2528,7 @@ async function composeRecordBody(id){
       if(!lista || lista.length===0) return `<p style="font-size:10.5pt;"><b>${titulo}:</b> sin acciones cargadas.</p>`;
       return `<p style="font-size:10.5pt;margin-bottom:2px;"><b>${titulo}:</b></p>` + lista.map((a,i)=>
         `<p style="font-size:10pt;margin:0 0 6px 12px;">${i+1}. ${a.descripcion||'—'} <br>
-          <span style="font-size:9pt;color:${GRAPH};">Responsable: ${a.responsable||'—'} · Vencimiento: ${fmtDate(a.vencimiento)} · Estado: ${a.estado||'—'}</span>
+          <span style="font-size:9pt;color:${GRAPH};">Responsable: ${a.responsable||'—'} · Vencimiento: ${fmtDate(a.vencimiento)} · Estado: ${a.estado||'—'}${a.estado==='Cerrado' && a.fecha_cierre ? ' · Cierre: '+fmtDate(a.fecha_cierre) : ''}</span>
         </p>`).join('');
     };
     body += accionRow('Acciones Correctivas', r.acciones_correctivas);
